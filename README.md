@@ -211,5 +211,5 @@ that uses the internet.
 - The standards being enforced: **`docs/standards.md`** (bundled with the tool).
 - Run the tests: `PYTHONPATH=src python -m pytest -q` · lint: `ruff check src tests`.
 
-This tool reuses the proven skeleton and conventions from `~/Documents/coop-data-doc`
-(see `~/Documents/cli-playbook.md`).
+This tool reuses the proven skeleton and conventions from the company's `coop-data-doc` tool
+and shared CLI playbook.

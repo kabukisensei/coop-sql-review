@@ -1,7 +1,7 @@
 """Standards resolution + optional rule configuration.
 
 The bundled ``data/standards.md`` is the default the linter checks against;
-``--standards`` can point at the canonical fabric-dw copy instead. The file's
+``--standards`` can point at the canonical company standards copy instead. The file's
 sha256 travels in the JSON output so the agent can tell which standards a
 report was produced under. An optional ``rules.yml`` (sibling of the
 standards file, or ``--config``) enables/disables rules and overrides

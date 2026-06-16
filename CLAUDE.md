@@ -15,12 +15,12 @@ Two non-negotiable invariants shape every design decision:
   and is never imported by the core.)
 
 Two audiences: a human console report and **machine JSON** (`--format json`) consumed by the
-company agent (`pi-analytics-agent`), which layers semantic judgment via the `agent_review` list.
+company analytics agent, which layers semantic judgment via the `agent_review` list.
 
 **Status: fully built.** All ~30 rules across `RULES.md` (Tier-1/2/3 deterministic, the
 agent-judgment rules, and the checkable `docs/standards-proposed-additions.md` rules §A–§F) are
 implemented, adversarially verified, and green. Remaining roadmap is operational: publish to PyPI
-(M6) and wire into `pi-analytics-agent`.
+(M6) and wire into the company analytics agent.
 
 User-facing usage docs live in `README.md` (written for readers with little terminal experience).
 
@@ -125,5 +125,5 @@ Carried from coop-data-doc's hard-won lessons:
 - `RULES.md` — full rule taxonomy (deterministic vs agent-judgment, by tier).
 - `docs/standards.md` — the §-numbered standards (also bundled at `src/coop_sql_review/data/standards.md`).
 - `docs/standards-proposed-additions.md` — MS/community best practices to consider (M5).
-- `~/Documents/cli-playbook.md` — company CLI conventions; `~/Documents/coop-data-doc` — the
-  reference implementation the skeleton + SQL helpers were lifted from.
+- The company CLI playbook — shared CLI conventions; the `coop-data-doc` tool — the reference
+  implementation the skeleton + SQL helpers were lifted from.

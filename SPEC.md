@@ -9,11 +9,11 @@ report (console / markdown) and **machine JSON for the agent**.
 
 ## Who runs it
 - A developer, on changed SQL before committing (or in CI as a non-failing report).
-- The company agent (`pi-analytics-agent`), which calls it and layers semantic judgment on top.
+- The company analytics agent, which calls it and layers semantic judgment on top.
 
 ## Reuse — do NOT start from scratch
-- **Skeleton**: follow `~/Documents/cli-playbook.md` and copy the proven bones from
-  `~/Documents/coop-data-doc`: hatchling `pyproject.toml`, `.github/workflows/ci.yml`
+- **Skeleton**: follow the company CLI playbook and copy the proven bones from
+  the `coop-data-doc` tool: hatchling `pyproject.toml`, `.github/workflows/ci.yml`
   (ubuntu+windows × py3.10–3.13), `publish.yml` (PyPI trusted publishing), `upgrade.py`
   (self-update), `progress.py`, ruff config, `src/` layout, pure-core/IO-at-edges.
 - **SQL parsing**: lift from coop-data-doc `src/coop_data_doc/parsers/sql_objects.py`,
@@ -46,9 +46,8 @@ coop-sql-review --version
 ```
 - Default exit code **0** (advisory). `--strict` makes it nonzero when findings ≥ threshold —
   for teams who *opt in* to a CI gate. Default stays non-blocking.
-- `--standards` points at the canonical file (e.g.
-  `~/Documents/GitHub/fabric-dw/docs/standards/sql-standards.md`); the bundled
-  `docs/standards.md` is the default/fallback.
+- `--standards` points at the canonical file (e.g. the company standards repo's
+  `sql-standards.md`); the bundled `docs/standards.md` is the default/fallback.
 
 ## Agent integration contract (how it "wires in" later)
 `--format json` emits (stable keys, sorted, deterministic):
@@ -81,7 +80,7 @@ standards. Same two-audience pattern as coop-data-doc (machine + human).
 
 ## Kickoff (paste into a NEW session launched from this folder)
 > Building **coop-sql-review**, an offline advisory SQL standards linter for our Fabric DW.
-> Read `~/Documents/cli-playbook.md`, this folder's `SPEC.md` + `RULES.md`, and
+> Read the company CLI playbook, this folder's `SPEC.md` + `RULES.md`, and
 > `docs/standards.md`. Reuse the coop-data-doc skeleton and lift its SQL parser
 > (`src/coop_data_doc/parsers/sql_*.py`) and `diagnostics.py`. Start at M0: scaffold the
 > project, then implement the Tier-1 deterministic rules from `RULES.md`.
@@ -90,5 +89,5 @@ standards. Same two-audience pattern as coop-data-doc (machine + human).
 - **Non-blocking**: never modify or reject SQL; only report.
 - **Offline + deterministic**: no network in the core; LF newlines; sorted iteration; pure
   rule functions returning Findings.
-- Keep `docs/standards.md` in sync with the canonical fabric-dw copy (or point `--standards`
-  straight at the repo file).
+- Keep `docs/standards.md` in sync with the canonical company standards copy (or point
+  `--standards` straight at that file).

@@ -7,7 +7,7 @@ offline guarantee for `check` is untouched.
 Lifted from coop-data-doc (only PACKAGE_NAME / import changed). Pure logic
 (classification, planning) is separated from side effects (network fetcher
 and subprocess runner are injectable) so tests never need the network. See
-~/Documents/cli-playbook.md §4 for every gotcha this encodes.
+the company CLI playbook §4 for every gotcha this encodes.
 """
 
 from __future__ import annotations
