@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coop-sql-review"
+version = "0.1.0"
+description = "Offline, advisory SQL standards linter for Microsoft Fabric Data Warehouse: parses .sql files and reports anything that doesn't match the team's SQL standards. Human report + machine JSON for the company agent. Never edits or blocks."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Aaron Jennings" }]
+keywords = ["sql", "linter", "fabric", "data-warehouse", "tsql", "standards"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "pydantic>=2.5",
+    "PyYAML>=6.0",
+    "sqlglot>=25.0",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+coop-sql-review = "coop_sql_review.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kabukisensei/coop-sql-review"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coop_sql_review"]
+
+[tool.hatch.build]
+# Ship the bundled standards so `coop-sql-review` works with no --standards flag.
+include = ["src/coop_sql_review/**/*.py", "src/coop_sql_review/data/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
