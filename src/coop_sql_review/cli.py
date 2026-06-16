@@ -19,7 +19,8 @@ from coop_sql_review.diagnostics import FILE_UNREADABLE, Diagnostic
 from coop_sql_review.engine import run_rules
 from coop_sql_review.finding import SEVERITIES
 from coop_sql_review.parser import parse_sql
-from coop_sql_review.report import console_lines, json_text, log_text
+from coop_sql_review.progress import Progress, should_enable
+from coop_sql_review.report import console_lines, json_text, log_text, to_html, to_markdown
 from coop_sql_review.rules import all_rules
 from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.standards import (
@@ -63,11 +64,16 @@ def discover_sql_files(paths: tuple[str, ...]) -> list[Path]:
     return sorted(found, key=lambda p: _display_path(p))
 
 
-def _parse_files(files: list[Path], dialect: str) -> tuple[list[ParsedFile], list[Diagnostic]]:
-    """Parse each file; an unreadable file becomes a diagnostic, not a crash."""
+def _parse_files(files: list[Path], dialect: str, on_file=None) -> tuple[list[ParsedFile], list[Diagnostic]]:
+    """Parse each file; an unreadable file becomes a diagnostic, not a crash.
+
+    ``on_file`` (optional) is ticked once per file for progress reporting.
+    """
     parsed: list[ParsedFile] = []
     read_diagnostics: list[Diagnostic] = []
     for path in files:
+        if on_file:
+            on_file(path)
         try:
             text = path.read_text(encoding="utf-8-sig", errors="replace")
         except OSError as exc:
@@ -112,7 +118,21 @@ def cli(ctx: click.Context) -> None:
 @click.option(
     "--config", "config_path", default=None, help="Path to a rules.yml (default: alongside standards)."
 )
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]), default="text", show_default=True)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json", "markdown", "html"]),
+    default="text",
+    show_default=True,
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_path",
+    type=click.Path(),
+    default=None,
+    help="Write the report to this file instead of the screen (easier to read for big runs).",
+)
 @click.option(
     "--min-severity",
     type=_SEVERITY_CHOICE,
@@ -136,6 +156,7 @@ def check(
     standards_path: str | None,
     config_path: str | None,
     fmt: str,
+    output_path: str | None,
     min_severity: str,
     dialect: str,
     log_file: str | None,
@@ -155,17 +176,35 @@ def check(
         click.echo("No .sql files found.", err=True)
         return
 
-    parsed, read_diagnostics = _parse_files(files, dialect)
+    # Progress is stderr-only + TTY-gated, so it never pollutes the report
+    # (stdout) or a redirected --output file.
+    progress = Progress(should_enable(quiet=False))
+    progress.line(f"Checking {len(files)} SQL file(s)...")
+    with progress.bar("Parsing", total=len(files)) as tick:
+        parsed, read_diagnostics = _parse_files(files, dialect, on_file=tick)
     result = run_rules(parsed, rules)
     result.diagnostics.extend(read_diagnostics)
     result.diagnostics.sort(key=lambda d: d.sort_key())
     result = result.filtered(min_severity)
 
+    standards = standards_info(std_path)
     if fmt == "json":
-        click.echo(json_text(result, version=__version__, standards=standards_info(std_path)), nl=False)
+        rendered = json_text(result, version=__version__, standards=standards)
+    elif fmt == "markdown":
+        rendered = to_markdown(result, version=__version__, standards=standards) + "\n"
+    elif fmt == "html":
+        rendered = to_html(result, version=__version__, standards=standards)
     else:
-        for line in console_lines(result):
-            click.echo(line)
+        rendered = "\n".join(console_lines(result)) + "\n"
+
+    if output_path:
+        try:
+            Path(output_path).write_text(rendered, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            raise click.ClickException(f"could not write report to {output_path}: {exc}") from exc
+        progress.line(f"Report written to {output_path}")
+    else:
+        click.echo(rendered, nl=False)
 
     if log_file:
         try:
@@ -195,15 +234,17 @@ def rules_cmd(fmt: str) -> None:
                 "standard_ref": r.standard_ref,
                 "tier": r.tier,
                 "kind": r.kind,
+                "default_enabled": r.default_enabled,
             }
             for r in rules
         ]
         click.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
         return
-    click.echo(f"{len(rules)} rule(s):\n")
+    click.echo(f"{len(rules)} rule(s) ('off' = disabled by default; enable in rules.yml):\n")
     for r in rules:
         tag = "agent" if r.kind == "agent" else r.severity
-        click.echo(f"  {r.id:26} [{tag:7}] T{r.tier} {r.standard_ref:5} {r.title}")
+        off = "" if r.default_enabled else "  [off by default]"
+        click.echo(f"  {r.id:26} [{tag:7}] T{r.tier} {r.standard_ref:5} {r.title}{off}")
 
 
 def _run_upgrade(check_only: bool, yes: bool) -> None:

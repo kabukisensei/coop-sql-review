@@ -47,6 +47,7 @@ class RuleConfig:
     """Which rules are on and any severity overrides (from rules.yml)."""
 
     disabled: set[str] = field(default_factory=set)
+    enabled: set[str] = field(default_factory=set)  # force-on for off-by-default rules
     severity_overrides: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -57,21 +58,30 @@ class RuleConfig:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         rules = data.get("rules", {}) if isinstance(data, dict) else {}
         disabled: set[str] = set()
+        enabled: set[str] = set()
         overrides: dict[str, str] = {}
         for rule_id, settings in (rules or {}).items():
             settings = settings or {}
             if settings.get("enabled") is False:
                 disabled.add(rule_id)
+            elif settings.get("enabled") is True:
+                enabled.add(rule_id)  # turn on an off-by-default rule
             if settings.get("severity"):
                 overrides[rule_id] = settings["severity"]
-        return cls(disabled=disabled, severity_overrides=overrides)
+        return cls(disabled=disabled, enabled=enabled, severity_overrides=overrides)
 
 
 def apply_config(rules: list[Rule], config: RuleConfig) -> list[Rule]:
-    """Drop disabled rules and apply severity overrides (non-mutating)."""
+    """Select active rules and apply severity overrides (non-mutating).
+
+    A rule runs unless it is explicitly disabled, or it is off-by-default and
+    not explicitly enabled in the config.
+    """
     out: list[Rule] = []
     for rule in rules:
         if rule.id in config.disabled:
+            continue
+        if not rule.default_enabled and rule.id not in config.enabled:
             continue
         if rule.id in config.severity_overrides:
             rule = replace(rule, severity=config.severity_overrides[rule.id])

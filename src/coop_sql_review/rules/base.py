@@ -28,6 +28,10 @@ class Rule:
     standard_ref: str  # section in standards.md, e.g. "§9"
     tier: int
     kind: str = "deterministic"  # "deterministic" | "agent"
+    # Off-by-default rules still ship and can be turned on in rules.yml
+    # (`enabled: true`); used for checks that are noisy on estates that don't
+    # follow that particular convention (header blocks, medallion schema names).
+    default_enabled: bool = True
     check: Optional[Callable[["RuleContext"], list[Finding]]] = None
     detect: Optional[Callable[["RuleContext"], list[AgentReviewItem]]] = None
 

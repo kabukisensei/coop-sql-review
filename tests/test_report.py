@@ -4,7 +4,7 @@ import json
 
 from coop_sql_review.engine import Result
 from coop_sql_review.finding import AgentReviewItem, Finding
-from coop_sql_review.report import console_lines, json_text, to_json
+from coop_sql_review.report import console_lines, json_text, to_html, to_json
 
 STANDARDS = {"path": "docs/standards.md", "sha256": "abc123"}
 
@@ -51,3 +51,17 @@ def test_console_mentions_advisory_and_counts():
     assert "2 warning" in lines
     assert "Advisory only" in lines
     assert "agent review" in lines
+
+
+def test_html_is_self_contained_and_escapes():
+    result = Result(
+        findings=[Finding("R", "warning", "f.sql", 1, "o", "x < y & z > w", "§9")],
+        files_checked=1,
+    )
+    out = to_html(result, version="0.1.1", standards={"path": "p", "sha256": "s"})
+    assert out.startswith("<!DOCTYPE html>")
+    assert "<style>" in out  # inline CSS, no external/CDN assets
+    assert "http://" not in out and "https://" not in out  # offline / self-contained
+    # dynamic content is HTML-escaped (no raw <, >, & from the message)
+    assert "x &lt; y &amp; z &gt; w" in out
+    assert "x < y & z > w" not in out

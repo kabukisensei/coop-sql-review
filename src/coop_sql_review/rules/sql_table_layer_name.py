@@ -41,5 +41,6 @@ RULE = Rule(
     category="naming",
     standard_ref="§1",
     tier=2,
+    default_enabled=False,  # many estates don't name schemas by layer; opt in via rules.yml
     check=check,
 )

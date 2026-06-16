@@ -109,6 +109,15 @@ Advisory only - nothing was changed or blocked.
 coop-sql-review check sql-folder --min-severity warning
 ```
 
+**Big folder? Save the report to a file** so you can scroll/search it instead of watching it fly
+past (a progress bar shows while it scans):
+```
+coop-sql-review check sql-folder --output review.html --format html
+```
+Then open `review.html` in your browser — it's a clean, self-contained page (no internet needed).
+You can also use `--format markdown` (open `review.md` in any editor) or plain `--output
+review.txt`.
+
 ---
 
 ## 5. All the commands
@@ -126,8 +135,9 @@ coop-sql-review check sql-folder --min-severity warning
 
 | Option | Meaning |
 |---|---|
+| `-o`, `--output <file>` | Write the report to a file instead of the screen (best for big runs). |
+| `--format text\|json\|markdown\|html` | `text` (default) for the screen, `html` for a clean browser report, `markdown` for a readable file, `json` for tools/the agent. |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
-| `--format text\|json` | `text` (default) for humans, `json` for tools/the agent. |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
 | `--config <rules.yml>` | Turn rules on/off or change their severity (see §7). |
 | `--log-file <file>` | Also write the diagnostics (parse problems, errors) to a file. |
@@ -157,20 +167,29 @@ coop-sql-review check sql-folder --format json > sql-review.json
 
 ## 7. Customising the rules (optional)
 
-Create a small `rules.yml` to disable a rule or change its severity — no reinstall needed:
+Create a small `rules.yml` to turn rules on/off or change their severity — no reinstall needed:
 
 ```yaml
 rules:
   SQL-DISTINCT-SMELL:
-    enabled: false          # turn this rule off
+    enabled: false            # turn a rule off
   SQL-NO-SELECT-STAR:
-    severity: error         # treat SELECT * as an error instead of a warning
+    severity: error           # treat SELECT * as an error instead of a warning
+  SQL-TABLE-LAYER-NAME:
+    enabled: true             # turn ON a rule that's off by default
 ```
 
 Then:
 ```
 coop-sql-review check sql-folder --config rules.yml
 ```
+
+**Two rules ship turned off by default** because they're noisy on estates that don't follow those
+conventions — turn them on in `rules.yml` (as above) if you want them:
+- `SQL-HEADER-COMMENT` (§10) — every file must start with a File/Purpose/… header block.
+- `SQL-TABLE-LAYER-NAME` (§1) — tables/views must live in a `bronze`/`silver`/`gold` schema.
+
+Run `coop-sql-review rules` to see which rules are off by default (marked `[off by default]`).
 
 To check against the team's canonical standards file directly:
 ```

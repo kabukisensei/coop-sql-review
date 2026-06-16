@@ -51,5 +51,6 @@ RULE = Rule(
     category="comments",
     standard_ref="§10",
     tier=2,
+    default_enabled=False,  # noisy on real estates; opt in via rules.yml
     check=check,
 )

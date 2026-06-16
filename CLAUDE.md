@@ -28,8 +28,14 @@ User-facing usage docs live in `README.md` (written for readers with little term
 
 `check` (the main one), `rules` (list all rules), `help [command]`, `upgrade` / `update`
 (self-update; the only networked command), `--version`. `check` options: `--standards`,
-`--config <rules.yml>`, `--format text|json`, `--min-severity`, `--dialect`, `--log-file`,
-`--strict` (opt-in CI gate → exit 2).
+`--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`, `--min-severity`,
+`--dialect`, `--log-file`, `--strict` (opt-in CI gate → exit 2). A stderr-only, TTY-gated
+progress bar (`progress.py`) shows during the parse phase.
+
+**Off-by-default rules:** `Rule.default_enabled=False` ships a rule but excludes it from runs
+unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently
+`SQL-HEADER-COMMENT` and `SQL-TABLE-LAYER-NAME` are off by default (too noisy on estates that
+don't follow those conventions). `rules` marks them `[off by default]`.
 
 ## Commands (dev)
 
