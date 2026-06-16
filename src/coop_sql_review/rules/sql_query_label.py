@@ -81,5 +81,6 @@ RULE = Rule(
     category="observability",
     standard_ref="§9",
     tier=3,
+    default_enabled=False,  # query labelling is a Fabric monitoring practice many skip; opt in via rules.yml
     check=check,
 )

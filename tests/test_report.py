@@ -65,3 +65,6 @@ def test_html_is_self_contained_and_escapes():
     # dynamic content is HTML-escaped (no raw <, >, & from the message)
     assert "x &lt; y &amp; z &gt; w" in out
     assert "x < y & z > w" not in out
+    # branded: the Cooptimize logo is embedded inline as a data URI
+    assert "data:image/png;base64," in out
+    assert "SQL Review" in out

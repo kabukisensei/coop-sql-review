@@ -55,5 +55,6 @@ RULE = Rule(
     category="inserts",
     standard_ref="§3",
     tier=2,
+    default_enabled=False,  # many teams omit per-column AS on INSERT...SELECT; opt in via rules.yml
     check=check,
 )

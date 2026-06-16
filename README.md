@@ -73,6 +73,10 @@ coop-sql-review check path/to/sql-folder
 > **drag the file or folder from your file explorer onto the terminal window** — it pastes the
 > path for you. Then press Enter.
 
+**Or just run `coop-sql-review check` with no folder** (from inside your SQL repo). In a terminal
+it shows a checklist of the folders in the current directory — everything's pre-selected, so press
+**Enter** to scan it all, or use the arrow keys + **Space** to pick just the folders you want.
+
 That's it. The tool prints a report and **always finishes successfully** — it won't block you.
 
 ---
@@ -114,7 +118,8 @@ past (a progress bar shows while it scans):
 ```
 coop-sql-review check sql-folder --output review.html --format html
 ```
-Then open `review.html` in your browser — it's a clean, self-contained page (no internet needed).
+Then open `review.html` in your browser — a clean, Cooptimize-branded, self-contained page (no
+internet needed).
 You can also use `--format markdown` (open `review.md` in any editor) or plain `--output
 review.txt`.
 
@@ -190,6 +195,8 @@ styles — turn any on in `rules.yml` (as above) if your team follows that conve
 - `SQL-TABLE-LAYER-NAME` (§1) — tables/views must live in a `bronze`/`silver`/`gold` schema.
 - `SQL-CTE-PREFIX` (§1) — CTE names must start with `cte_`.
 - `SQL-ALIAS-DESCRIPTIVE` (§2) — table aliases must be 3+ char descriptive abbreviations.
+- `SQL-INSERT-ALIAS-MATCH` (§3) — each `INSERT…SELECT` column must be aliased `AS <target>`.
+- `SQL-QUERY-LABEL` (§9) — ETL inserts should carry `OPTION(LABEL=…)`.
 
 Run `coop-sql-review rules` to see which rules are off by default (marked `[off by default]`).
 

@@ -99,6 +99,34 @@ def test_html_format(tmp_path):
     assert "SQL-NO-SELECT-STAR" in out
 
 
+def test_interactive_picker_falls_back_without_subdirs(tmp_path):
+    from coop_sql_review.cli import _interactive_pick_paths
+
+    (tmp_path / "a.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    # No subfolders -> picker returns None so the caller uses the default path.
+    assert _interactive_pick_paths(tmp_path) is None
+
+
+def test_interactive_picker_all_selected_returns_root(tmp_path, monkeypatch):
+    from coop_sql_review import cli as climod
+
+    (tmp_path / "silver").mkdir()
+    (tmp_path / "gold").mkdir()
+
+    class _FakeCheckbox:
+        def __init__(self, *a, **k):
+            pass
+
+        def ask(self):  # simulate the user keeping everything checked
+            return [tmp_path / "gold", tmp_path / "silver"]
+
+    import questionary
+
+    monkeypatch.setattr(questionary, "checkbox", lambda *a, **k: _FakeCheckbox())
+    monkeypatch.setattr(questionary, "Choice", lambda **k: k.get("value"))
+    assert climod._interactive_pick_paths(tmp_path) == [tmp_path]  # all -> scan root
+
+
 def test_rules_command_marks_off_by_default():
     out = CliRunner().invoke(cli, ["rules"]).output
     # the two noisy rules ship but are marked off

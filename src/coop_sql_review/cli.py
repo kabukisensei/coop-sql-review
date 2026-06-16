@@ -91,6 +91,48 @@ def _parse_files(files: list[Path], dialect: str, on_file=None) -> tuple[list[Pa
     return parsed, read_diagnostics
 
 
+def _stdio_interactive() -> bool:
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _interactive_pick_paths(root: Path) -> list[Path] | None:
+    """Let the user pick which subfolders to check via a checkbox.
+
+    All folders start selected, so pressing ENTER checks everything (== scan
+    the whole folder). Returns the chosen paths, or None to fall back to the
+    default behavior — no subfolders, questionary unavailable, or cancelled.
+    """
+    try:
+        subdirs = sorted(
+            (d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")),
+            key=lambda d: d.name,
+        )
+    except OSError:
+        return None
+    if not subdirs:
+        return None
+    try:
+        import questionary
+    except ImportError:
+        return None
+    choices = [questionary.Choice(title=f"{d.name}/", value=d, checked=True) for d in subdirs]
+    try:
+        selected = questionary.checkbox(
+            "Folders to check (all selected; SPACE to toggle, ENTER to confirm):", choices=choices
+        ).ask()
+    except (OSError, EOFError):
+        return None
+    if not selected:
+        return None
+    # Everything selected -> scan the root (also catches loose top-level .sql files).
+    if len(selected) == len(subdirs):
+        return [root]
+    return list(selected)
+
+
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="coop-sql-review")
 @click.pass_context
@@ -170,6 +212,12 @@ def check(
 
     config = RuleConfig.load(Path(config_path) if config_path else default_config_path(std_path))
     rules = apply_config(all_rules(), config)
+
+    # With no paths in an interactive terminal, offer a folder picker.
+    if not paths and _stdio_interactive():
+        picked = _interactive_pick_paths(Path("."))
+        if picked is not None:
+            paths = tuple(str(p) for p in picked)
 
     files = discover_sql_files(paths)
     if not files:

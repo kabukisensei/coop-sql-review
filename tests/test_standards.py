@@ -88,6 +88,8 @@ def test_shipped_noisy_rules_are_off_by_default():
         "SQL-TABLE-LAYER-NAME",
         "SQL-CTE-PREFIX",
         "SQL-ALIAS-DESCRIPTIVE",
+        "SQL-INSERT-ALIAS-MATCH",
+        "SQL-QUERY-LABEL",
     ):
         assert off not in active
     assert "SQL-NO-SELECT-STAR" in active  # a normal rule still runs

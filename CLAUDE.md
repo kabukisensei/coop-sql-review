@@ -30,13 +30,20 @@ User-facing usage docs live in `README.md` (written for readers with little term
 (self-update; the only networked command), `--version`. `check` options: `--standards`,
 `--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`, `--min-severity`,
 `--dialect`, `--log-file`, `--strict` (opt-in CI gate → exit 2). A stderr-only, TTY-gated
-progress bar (`progress.py`) shows during the parse phase.
+progress bar (`progress.py`) shows during the parse phase. `check` with no PATHS in an interactive
+terminal shows a questionary folder-picker (`cli._interactive_pick_paths`); non-TTY falls back to
+scanning `.`.
+
+**HTML report (`--format html`)** is self-contained and Cooptimize-branded: `report.to_html`
+inlines the CSS (brand palette: navy `#004068`, accent `#e84028`, green gradient) and base64-embeds
+the bundled logo (`data/cooptimize-logo.png`) — no network, all dynamic text HTML-escaped. The logo
+ships via the `[tool.hatch.build] include = [".../data/*"]` glob.
 
 **Off-by-default rules:** `Rule.default_enabled=False` ships a rule but excludes it from runs
 unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently off by
 default (noisy on estates with different house styles): `SQL-HEADER-COMMENT`,
-`SQL-TABLE-LAYER-NAME`, `SQL-CTE-PREFIX`, `SQL-ALIAS-DESCRIPTIVE`. `rules` marks them
-`[off by default]`.
+`SQL-TABLE-LAYER-NAME`, `SQL-CTE-PREFIX`, `SQL-ALIAS-DESCRIPTIVE`, `SQL-INSERT-ALIAS-MATCH`,
+`SQL-QUERY-LABEL`. `rules` marks them `[off by default]`.
 
 ## Commands (dev)
 
