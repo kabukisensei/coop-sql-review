@@ -83,6 +83,11 @@ def test_shipped_noisy_rules_are_off_by_default():
     from coop_sql_review.rules import all_rules
 
     active = {r.id for r in apply_config(all_rules(), RuleConfig())}
-    assert "SQL-HEADER-COMMENT" not in active
-    assert "SQL-TABLE-LAYER-NAME" not in active
+    for off in (
+        "SQL-HEADER-COMMENT",
+        "SQL-TABLE-LAYER-NAME",
+        "SQL-CTE-PREFIX",
+        "SQL-ALIAS-DESCRIPTIVE",
+    ):
+        assert off not in active
     assert "SQL-NO-SELECT-STAR" in active  # a normal rule still runs

@@ -40,5 +40,6 @@ RULE = Rule(
     category="aliases",
     standard_ref="§2",
     tier=1,
+    default_enabled=False,  # short aliases are common house style; opt in via rules.yml
     check=check,
 )

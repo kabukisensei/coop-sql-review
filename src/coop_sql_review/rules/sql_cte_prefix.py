@@ -40,5 +40,6 @@ RULE = Rule(
     category="naming",
     standard_ref="§1",
     tier=1,
+    default_enabled=False,  # many teams don't use the cte_ prefix; opt in via rules.yml
     check=check,
 )

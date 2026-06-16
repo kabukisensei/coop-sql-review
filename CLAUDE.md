@@ -33,9 +33,10 @@ User-facing usage docs live in `README.md` (written for readers with little term
 progress bar (`progress.py`) shows during the parse phase.
 
 **Off-by-default rules:** `Rule.default_enabled=False` ships a rule but excludes it from runs
-unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently
-`SQL-HEADER-COMMENT` and `SQL-TABLE-LAYER-NAME` are off by default (too noisy on estates that
-don't follow those conventions). `rules` marks them `[off by default]`.
+unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently off by
+default (noisy on estates with different house styles): `SQL-HEADER-COMMENT`,
+`SQL-TABLE-LAYER-NAME`, `SQL-CTE-PREFIX`, `SQL-ALIAS-DESCRIPTIVE`. `rules` marks them
+`[off by default]`.
 
 ## Commands (dev)
 

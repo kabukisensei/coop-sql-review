@@ -184,10 +184,12 @@ Then:
 coop-sql-review check sql-folder --config rules.yml
 ```
 
-**Two rules ship turned off by default** because they're noisy on estates that don't follow those
-conventions — turn them on in `rules.yml` (as above) if you want them:
+**Some rules ship turned off by default** because they're noisy on estates with different house
+styles — turn any on in `rules.yml` (as above) if your team follows that convention:
 - `SQL-HEADER-COMMENT` (§10) — every file must start with a File/Purpose/… header block.
 - `SQL-TABLE-LAYER-NAME` (§1) — tables/views must live in a `bronze`/`silver`/`gold` schema.
+- `SQL-CTE-PREFIX` (§1) — CTE names must start with `cte_`.
+- `SQL-ALIAS-DESCRIPTIVE` (§2) — table aliases must be 3+ char descriptive abbreviations.
 
 Run `coop-sql-review rules` to see which rules are off by default (marked `[off by default]`).
 
