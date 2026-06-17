@@ -27,17 +27,30 @@ User-facing usage docs live in `README.md` (written for readers with little term
 ## CLI commands
 
 `check` (the main one), `rules` (list all rules), `help [command]`, `upgrade` / `update`
-(self-update; the only networked command), `--version`. `check` options: `--standards`,
-`--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`, `--min-severity`,
-`--dialect`, `--log-file`, `--strict` (opt-in CI gate → exit 2). A stderr-only, TTY-gated
-progress bar (`progress.py`) shows during the parse phase. `check` with no PATHS in an interactive
-terminal shows a questionary folder-picker (`cli._interactive_pick_paths`); non-TTY falls back to
-scanning `.`.
+(the only networked command), `--version`. `check` options: `--standards`,
+`--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`,
+`--open/--no-open`, `--min-severity`, `--dialect`, `--log-file`, `--strict` (opt-in CI gate →
+exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
+`check` with no PATHS in an interactive terminal shows a questionary folder-picker
+(`cli._interactive_pick_paths`); non-TTY falls back to scanning `.`.
+
+**`upgrade`/`update` are advisory too — they never self-apply.** They query PyPI to report
+whether a newer release exists, then *print* the command to run (`upgrade.upgrade_command(plan)`,
+per install method — e.g. `pipx upgrade coop-sql-review`); the user runs it in a fresh terminal.
+Rationale: a running program can't reliably replace its own files (its console-script `.exe` is
+locked on Windows). `upgrade.apply_plan` (the actual subprocess runner) is retained as tested
+library API but is no longer invoked by the CLI; `upgrade_command` mirrors the command(s)
+`apply_plan` would run — a list (git-checkout pulls then reinstalls; one command otherwise) — with
+display-friendly tokens (`python` over `sys.executable`). `--check` reports status only.
 
 **HTML report (`--format html`)** is self-contained and Cooptimize-branded: `report.to_html`
 inlines the CSS (brand palette: navy `#004068`, accent `#e84028`, green gradient) and base64-embeds
 the bundled logo (`data/cooptimize-logo.png`) — no network, all dynamic text HTML-escaped. The logo
-ships via the `[tool.hatch.build] include = [".../data/*"]` glob.
+ships via the `[tool.hatch.build] include = [".../data/*"]` glob. When `-o` writes any report,
+`check` echoes the resolved POSIX path to stderr **unconditionally** (not gated on the progress
+bar) so a piped run or agent can find the file; an HTML report is then opened in the browser via
+`cli._open_report` — gated by `cli._should_open_report` to `fmt == "html"` + interactive TTY, with
+`--open`/`--no-open` overriding. Opening is best-effort (failure prints a note, never fatal).
 
 **Off-by-default rules:** `Rule.default_enabled=False` ships a rule but excludes it from runs
 unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently off by

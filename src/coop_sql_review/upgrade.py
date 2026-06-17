@@ -279,6 +279,40 @@ def build_plan(
     return plan
 
 
+def upgrade_command(plan: UpgradePlan) -> list[list[str]]:
+    """The command(s) a user should run themselves to upgrade the tool.
+
+    `upgrade`/`update` print these rather than executing them: a running
+    program can't reliably replace its own files (on Windows its console-script
+    .exe is locked), so the user runs them in a fresh terminal. Mirrors the
+    commands ``apply_plan`` would run, but with display-friendly tokens
+    (``python`` rather than this interpreter's absolute path). Returns a list of
+    commands to run in order — git-checkout pulls *then* reinstalls so a
+    non-editable clone install actually picks up the change; one command for
+    every other install method.
+    """
+    if plan.install_method == "pipx":
+        verb = "reinstall" if plan.is_vcs_install else "upgrade"
+        return [["pipx", verb, PACKAGE_NAME]]
+    if plan.install_method == "uv-tool":
+        if plan.is_vcs_install:
+            return [["uv", "tool", "install", "--force", plan.pip_spec or PACKAGE_NAME]]
+        return [["uv", "tool", "upgrade", PACKAGE_NAME]]
+    if plan.install_method == "git-checkout" and plan.checkout is not None:
+        # Mirror apply_plan: pull only when upstream has new commits (a checkout
+        # with no upstream has nothing to pull and `git pull` would fail), then
+        # reinstall the working tree so a non-editable install is truly updated.
+        commands: list[list[str]] = []
+        if "new commit(s)" in plan.tool_note:
+            commands.append(["git", "-C", str(plan.checkout), "pull", "--ff-only"])
+        commands.append(["python", "-m", "pip", "install", "-U", str(plan.checkout)])
+        return commands
+    if plan.pip_spec:
+        spec_tokens = ["-e", plan.pip_spec[3:]] if plan.pip_spec.startswith("-e ") else [plan.pip_spec]
+        return [["python", "-m", "pip", "install", "-U", "--force-reinstall", *spec_tokens]]
+    return [["python", "-m", "pip", "install", "-U", PACKAGE_NAME]]
+
+
 def apply_plan(plan: UpgradePlan, runner=subprocess.run) -> list[list[str]]:
     """Run the upgrade: the tool first, then non-breaking dependency bumps.
 

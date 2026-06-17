@@ -98,6 +98,36 @@ def _stdio_interactive() -> bool:
         return False
 
 
+def _should_open_report(fmt: str, open_report: bool | None) -> bool:
+    """Whether to open the just-written report in a browser.
+
+    Only ever applies to the HTML report (the only browser-viewable format).
+    An explicit ``--open``/``--no-open`` overrides the default; otherwise we
+    auto-open only in an interactive terminal — so an agent or CI run, which
+    just reads the file we name, never triggers a browser pop-up.
+    """
+    if fmt != "html":
+        return False
+    if open_report is not None:
+        return open_report
+    return _stdio_interactive()
+
+
+def _open_report(path: Path) -> None:
+    """Open a written report in the default browser. Best-effort: opening a
+    browser is a convenience, so a failure is reported but never fatal (the
+    file is already written and its path has been printed)."""
+    import webbrowser
+
+    try:
+        opened = webbrowser.open(path.as_uri())
+    except Exception as exc:
+        click.echo(f"(could not open the report automatically: {exc})", err=True)
+        return
+    if not opened:
+        click.echo("(could not find a browser to open it - open the path above yourself)", err=True)
+
+
 def _interactive_pick_paths(root: Path) -> list[Path] | None:
     """Let the user pick which subfolders to check via a checkbox.
 
@@ -176,6 +206,13 @@ def cli(ctx: click.Context) -> None:
     help="Write the report to this file instead of the screen (easier to read for big runs).",
 )
 @click.option(
+    "--open/--no-open",
+    "open_report",
+    default=None,
+    help="Open an HTML report in your browser when finished "
+    "(default: auto - opens only in an interactive terminal).",
+)
+@click.option(
     "--min-severity",
     type=_SEVERITY_CHOICE,
     default="info",
@@ -199,6 +236,7 @@ def check(
     config_path: str | None,
     fmt: str,
     output_path: str | None,
+    open_report: bool | None,
     min_severity: str,
     dialect: str,
     log_file: str | None,
@@ -246,11 +284,17 @@ def check(
         rendered = "\n".join(console_lines(result)) + "\n"
 
     if output_path:
+        out_file = Path(output_path)
         try:
-            Path(output_path).write_text(rendered, encoding="utf-8", newline="\n")
+            out_file.write_text(rendered, encoding="utf-8", newline="\n")
         except OSError as exc:
             raise click.ClickException(f"could not write report to {output_path}: {exc}") from exc
-        progress.line(f"Report written to {output_path}")
+        resolved = out_file.resolve()
+        # Always announce the path (not gated on the TTY progress bar) so a
+        # piped run or an agent can find the file it just wrote.
+        click.echo(f"Report written to {resolved.as_posix()}", err=True)
+        if _should_open_report(fmt, open_report):
+            _open_report(resolved)
     else:
         click.echo(rendered, nl=False)
 
@@ -295,9 +339,16 @@ def rules_cmd(fmt: str) -> None:
         click.echo(f"  {r.id:26} [{tag:7}] T{r.tier} {r.standard_ref:5} {r.title}{off}")
 
 
-def _run_upgrade(check_only: bool, yes: bool) -> None:
-    """Shared self-update behind both `upgrade` and `update` (the only networked path)."""
-    from coop_sql_review.upgrade import UpgradeError, apply_plan, build_plan
+def _run_upgrade(check_only: bool) -> None:
+    """Shared logic behind `upgrade` and `update` (the only networked path).
+
+    Checks PyPI for the latest release to report whether an update exists, then
+    prints the exact command to run. It does NOT apply the update itself: a
+    running program can't reliably replace its own files (on Windows its
+    console-script .exe is locked), so the user runs the command in a fresh
+    terminal. This keeps the tool's advisory, never-acts-for-you contract.
+    """
+    from coop_sql_review.upgrade import build_plan, upgrade_command
 
     plan = build_plan()
     click.echo(f"coop-sql-review {plan.tool_installed} ({plan.install_method}) — {plan.tool_note}")
@@ -314,25 +365,21 @@ def _run_upgrade(check_only: bool, yes: bool) -> None:
             click.echo(f"  {dep.name:20} {dep.installed:12} {label}")
     if check_only:
         return
-    if not yes:
-        if not (sys.stdin.isatty() and sys.stdout.isatty()):
-            click.echo("\nRe-run with --yes to apply in non-interactive environments.", err=True)
-            return
-        if not click.confirm("\nApply the update and any non-breaking dependency updates?", default=True):
-            click.echo("Nothing changed.")
-            return
-    try:
-        executed = apply_plan(plan)
-    except UpgradeError as exc:
-        raise click.ClickException(str(exc)) from exc
-    for command in executed:
-        click.echo(f"ran: {' '.join(command)}", err=True)
-    click.echo("Done. Run `coop-sql-review --version` to confirm.")
+    commands = "\n".join(f"    {' '.join(cmd)}" for cmd in upgrade_command(plan))
+    click.echo(
+        "\nThis tool can't upgrade itself while it's running. To upgrade, "
+        "open a new terminal and run:\n\n"
+        f"{commands}\n"
+    )
 
 
 _UPGRADE_OPTIONS = [
-    click.option("--check", "check_only", is_flag=True, help="Report available updates; change nothing."),
-    click.option("--yes", is_flag=True, help="Apply without asking for confirmation."),
+    click.option(
+        "--check",
+        "check_only",
+        is_flag=True,
+        help="Only report whether an update is available; don't print the upgrade command.",
+    ),
 ]
 
 
@@ -344,20 +391,22 @@ def _with_upgrade_options(func):
 
 @cli.command()
 @_with_upgrade_options
-def upgrade(check_only: bool, yes: bool) -> None:
-    """Update coop-sql-review to the latest version (and safe dependency bumps).
+def upgrade(check_only: bool) -> None:
+    """Show how to update coop-sql-review to the latest version.
 
-    The ONLY command that uses the network. Major dependency jumps are
-    reported but never auto-applied.
+    The ONLY command that uses the network: it checks PyPI for the latest
+    release and prints the command to run. It does not upgrade in place —
+    a running program can't replace its own files — so run the printed
+    command yourself in a fresh terminal.
     """
-    _run_upgrade(check_only, yes)
+    _run_upgrade(check_only)
 
 
 @cli.command()
 @_with_upgrade_options
-def update(check_only: bool, yes: bool) -> None:
-    """Alias for `upgrade` — update coop-sql-review to the latest version."""
-    _run_upgrade(check_only, yes)
+def update(check_only: bool) -> None:
+    """Alias for `upgrade` — show how to update coop-sql-review."""
+    _run_upgrade(check_only)
 
 
 @cli.command(name="help")

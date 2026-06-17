@@ -118,8 +118,9 @@ past (a progress bar shows while it scans):
 ```
 coop-sql-review check sql-folder --output review.html --format html
 ```
-Then open `review.html` in your browser — a clean, Cooptimize-branded, self-contained page (no
-internet needed).
+The tool **prints the full path** to the file it wrote and — when you're in a terminal —
+**opens the HTML report in your browser automatically** (a clean, Cooptimize-branded,
+self-contained page; no internet needed). Add `--no-open` if you'd rather it didn't.
 You can also use `--format markdown` (open `review.md` in any editor) or plain `--output
 review.txt`.
 
@@ -132,8 +133,8 @@ review.txt`.
 | `coop-sql-review check [paths...]` | Check files/folders against the standards (the main command). |
 | `coop-sql-review rules` | List every rule it checks, with severity and tier. |
 | `coop-sql-review help` | Show help. `help check` shows help for one command. |
-| `coop-sql-review update` | Update the tool to the newest version (same as `upgrade`). |
-| `coop-sql-review upgrade` | Update the tool to the newest version. |
+| `coop-sql-review update` | Check for a newer version and print the command to upgrade (same as `upgrade`). |
+| `coop-sql-review upgrade` | Check for a newer version and print the command to upgrade. |
 | `coop-sql-review --version` | Show the installed version. |
 
 ### Options for `check`
@@ -142,6 +143,7 @@ review.txt`.
 |---|---|
 | `-o`, `--output <file>` | Write the report to a file instead of the screen (best for big runs). |
 | `--format text\|json\|markdown\|html` | `text` (default) for the screen, `html` for a clean browser report, `markdown` for a readable file, `json` for tools/the agent. |
+| `--open` / `--no-open` | Whether to open an HTML report in your browser when it's written. Default: opens automatically when you're in a terminal; `--no-open` to skip. |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
 | `--config <rules.yml>` | Turn rules on/off or change their severity (see §7). |
@@ -212,8 +214,12 @@ coop-sql-review check sql-folder --standards path/to/sql-standards.md
 ```
 coop-sql-review update
 ```
-This updates the tool (and safe dependency updates) to the latest version. It's the only command
-that uses the internet.
+This checks whether a newer version exists and **prints the exact command to run** to upgrade
+(for most people: `pipx upgrade coop-sql-review`). It's the only command that uses the internet.
+
+It doesn't upgrade in place: a program can't reliably replace its own files while it's running,
+so just **open a new terminal and run the command it shows you**. (`update` and `upgrade` are the
+same command; add `--check` to only see whether an update is available.)
 
 ---
 

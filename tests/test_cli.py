@@ -81,6 +81,73 @@ def test_output_writes_report_to_file(tmp_path):
     assert "SQL-NO-SELECT-STAR" in report.read_text(encoding="utf-8")
 
 
+def test_output_announces_resolved_path(tmp_path):
+    f = tmp_path / "t.sql"
+    f.write_text("SELECT * FROM x;\n", encoding="utf-8")
+    report = tmp_path / "review.html"
+    result = CliRunner().invoke(cli, ["check", str(f), "-o", str(report), "--format", "html"])
+    assert result.exit_code == 0
+    # The path is announced on STDERR (stdout stays the byte-identical report
+    # artifact) even though the run is non-interactive — an agent reads the
+    # file we name. Asserting on result.stderr (not the merged result.output)
+    # guards the stdout/stderr contract: a dropped err=True would fail here.
+    assert "Report written to" in result.stderr
+    assert report.resolve().as_posix() in result.stderr
+
+
+def test_html_not_auto_opened_when_not_a_tty(tmp_path, monkeypatch):
+    from coop_sql_review import cli as climod
+
+    calls = []
+    monkeypatch.setattr(climod, "_open_report", lambda path: calls.append(path))
+    f = tmp_path / "t.sql"
+    f.write_text("SELECT * FROM x;\n", encoding="utf-8")
+    report = tmp_path / "review.html"
+    # CliRunner is non-interactive, so default (auto) must NOT open a browser.
+    CliRunner().invoke(cli, ["check", str(f), "-o", str(report), "--format", "html"])
+    assert calls == []
+
+
+def test_open_flag_forces_open(tmp_path, monkeypatch):
+    from coop_sql_review import cli as climod
+
+    calls = []
+    monkeypatch.setattr(climod, "_open_report", lambda path: calls.append(path))
+    f = tmp_path / "t.sql"
+    f.write_text("SELECT * FROM x;\n", encoding="utf-8")
+    report = tmp_path / "review.html"
+    CliRunner().invoke(cli, ["check", str(f), "-o", str(report), "--format", "html", "--open"])
+    assert calls == [report.resolve()]
+
+
+def test_no_open_flag_suppresses_even_when_interactive(monkeypatch):
+    from coop_sql_review import cli as climod
+
+    # Pretend we are interactive so the only thing keeping the browser shut is --no-open.
+    monkeypatch.setattr(climod, "_stdio_interactive", lambda: True)
+    assert climod._should_open_report("html", False) is False
+    assert climod._should_open_report("html", None) is True  # auto opens when interactive
+    # The open behavior is HTML-only: a non-HTML format never opens, even with
+    # an explicit --open (matches the flag's "open an HTML report" help text).
+    assert climod._should_open_report("text", True) is False
+    assert climod._should_open_report("markdown", True) is False
+
+
+def test_upgrade_shows_command_without_applying(monkeypatch):
+    from coop_sql_review import upgrade as upmod
+
+    plan = upmod.UpgradePlan("pipx", None, "0.1.0", "latest release is 0.2.0", pip_spec=None)
+    monkeypatch.setattr(upmod, "build_plan", lambda *a, **k: plan)
+    # If anything tried to apply, it would call subprocess; make that explode.
+    monkeypatch.setattr(
+        upmod, "apply_plan", lambda *a, **k: (_ for _ in ()).throw(AssertionError("applied!"))
+    )
+    result = CliRunner().invoke(cli, ["upgrade"])
+    assert result.exit_code == 0
+    assert "pipx upgrade coop-sql-review" in result.output
+    assert "open a new terminal" in result.output
+
+
 def test_markdown_format(tmp_path):
     f = tmp_path / "t.sql"
     f.write_text("SELECT * FROM x;\n", encoding="utf-8")
