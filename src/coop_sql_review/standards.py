@@ -50,6 +50,7 @@ class RuleConfig:
     disabled: set[str] = field(default_factory=set)
     enabled: set[str] = field(default_factory=set)  # force-on for off-by-default rules
     severity_overrides: dict[str, str] = field(default_factory=dict)
+    params: dict[str, dict] = field(default_factory=dict)  # per-rule tunables (e.g. thresholds)
     configured: set[str] = field(default_factory=set)  # every rule id mentioned in the file
 
     @classmethod
@@ -62,6 +63,7 @@ class RuleConfig:
         disabled: set[str] = set()
         enabled: set[str] = set()
         overrides: dict[str, str] = {}
+        params: dict[str, dict] = {}
         for rule_id, settings in (rules or {}).items():
             settings = settings or {}
             if settings.get("enabled") is False:
@@ -79,10 +81,13 @@ class RuleConfig:
                         f"expected one of {', '.join(SEVERITIES)}"
                     )
                 overrides[rule_id] = severity
+            if isinstance(settings.get("params"), dict):
+                params[rule_id] = settings["params"]
         return cls(
             disabled=disabled,
             enabled=enabled,
             severity_overrides=overrides,
+            params=params,
             configured=set(rules or {}),
         )
 
@@ -105,6 +110,8 @@ def apply_config(rules: list[Rule], config: RuleConfig) -> list[Rule]:
             continue
         if rule.id in config.severity_overrides:
             rule = replace(rule, severity=config.severity_overrides[rule.id])
+        if rule.id in config.params:
+            rule = replace(rule, params={**rule.params, **config.params[rule.id]})
         out.append(rule)
     return out
 

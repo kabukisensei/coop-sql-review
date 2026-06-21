@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coop-sql-review"
-version = "0.2.0"
+dynamic = ["version"]   # single-sourced from src/coop_sql_review/__init__.py (see [tool.hatch.version])
 description = "Offline, advisory SQL standards linter for Microsoft Fabric Data Warehouse: parses .sql files and reports anything that doesn't match the team's SQL standards. Human report + machine JSON for the company agent. Never edits or blocks."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,6 +39,9 @@ coop-sql-review = "coop_sql_review.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/kabukisensei/coop-sql-review"
+
+[tool.hatch.version]
+path = "src/coop_sql_review/__init__.py"   # the single source of truth for the version
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/coop_sql_review"]

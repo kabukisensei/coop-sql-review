@@ -79,6 +79,26 @@ def test_rules_yml_can_enable_an_off_by_default_rule(tmp_path):
     assert "SQL-TABLE-LAYER-NAME" in config.enabled
 
 
+def test_params_parsed_and_applied_to_rule(tmp_path):
+    cfg_file = tmp_path / "rules.yml"
+    cfg_file.write_text("rules:\n  SQL-NO-SELECT-STAR:\n    params:\n      threshold: 5\n", encoding="utf-8")
+    config = RuleConfig.load(cfg_file)
+    assert config.params == {"SQL-NO-SELECT-STAR": {"threshold": 5}}
+    out = apply_config([_rule("SQL-NO-SELECT-STAR")], config)
+    assert out[0].params == {"threshold": 5}
+
+
+def test_ctx_param_reads_and_coerces():
+    from coop_sql_review.rules.base import RuleContext
+    from coop_sql_review.sql_model import ParsedFile
+
+    rule = _rule("SQL-X")
+    rule.params = {"threshold": "5"}  # YAML may hand us a string
+    ctx = RuleContext(rule, ParsedFile(path="f.sql", text="", masked="", dialect="tsql"))
+    assert ctx.param("threshold", 3) == 5  # coerced to int, matching the default's type
+    assert ctx.param("missing", 3) == 3  # falls back to the default
+
+
 def test_invalid_severity_raises(tmp_path):
     cfg_file = tmp_path / "rules.yml"
     cfg_file.write_text("rules:\n  SQL-NO-SELECT-STAR:\n    severity: critical\n", encoding="utf-8")
