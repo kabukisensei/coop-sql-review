@@ -49,6 +49,7 @@ def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
         "tool": "coop-sql-review",
         "version": version,
         "standards": {"path": standards.get("path", ""), "sha256": standards.get("sha256", "")},
+        "files_checked": result.files_checked,  # lets the agent tell "clean" from "nothing parsed"
         "findings": [
             {
                 "rule_id": f.rule_id,
@@ -150,6 +151,25 @@ def console_lines(
             lines.append(head)
             lines.append(indent + _sty(f"{f.file}:{f.line}", "dim", color=color))  # clickable in editors
             for wrapped in textwrap.wrap(f.message, _REPORT_WIDTH - 9):
+                lines.append(indent + wrapped)
+
+    # ---- agent review (judgment required) — list what was flagged, not just a count ----
+    if result.agent_review:
+        lines.append("")
+        lines.append("  " + _sty("Agent review (judgment required)", "bold", color=color))
+        lines.append("  " + _sty("-" * (_REPORT_WIDTH - 2), "dim", color=color))
+        for a in result.agent_review:
+            head = (
+                "   "
+                + _sty("JUDGE", "cyan", "bold", color=color)
+                + " "
+                + _sty(a.rule_id, "bold", color=color)
+                + f"  {a.standard_ref}"
+            )
+            if a.object:
+                head += f"   {a.object}"
+            lines.append(head)
+            for wrapped in textwrap.wrap(a.note, _REPORT_WIDTH - 9):
                 lines.append(indent + wrapped)
 
     # ---- diagnostics (processing problems) — always shown; they explain gaps ----

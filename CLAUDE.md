@@ -19,7 +19,7 @@ company analytics agent, which layers semantic judgment via the `agent_review` l
 
 **Status: fully built.** All ~30 rules across `RULES.md` (Tier-1/2/3 deterministic, the
 agent-judgment rules, and the checkable `docs/standards-proposed-additions.md` rules §A–§F) are
-implemented, adversarially verified, and green. Published to PyPI (0.1.5 is live via the `v*`-tag
+implemented, adversarially verified, and green. Published to PyPI (live via the `v*`-tag
 trusted-publishing workflow). Remaining roadmap is operational: wire into the company analytics agent.
 
 User-facing usage docs live in `README.md` (written for readers with little terminal experience).

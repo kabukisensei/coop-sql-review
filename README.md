@@ -46,7 +46,7 @@ pipx install coop-sql-review
 ```
 coop-sql-review --version
 ```
-You should see a version number like `coop-sql-review, version 0.1.5`.
+You should see a version number like `coop-sql-review, version 0.1.6`.
 
 > Want the very latest unreleased build instead of the PyPI release? Install straight from the
 > repository:
@@ -90,7 +90,7 @@ A typical report looks like this:
 ========================================================================
   coop-sql-review                                   SQL standards report
 ========================================================================
-  standards: standards.md    files checked: 1    v0.1.5
+  standards: standards.md    files checked: 1    v0.1.6
 
   silver/dim_customer.sql
   ----------------------------------------------------------------------

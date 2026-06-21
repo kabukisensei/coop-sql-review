@@ -53,6 +53,13 @@ def test_console_mentions_advisory_and_counts():
     assert "agent review" in lines
 
 
+def test_console_lists_agent_review_items():
+    text = "\n".join(console_lines(_result()))
+    assert "Agent review (judgment required)" in text  # the section, not just a count
+    assert "JUDGE" in text
+    assert "SQL-UPSERT-CHOICE" in text  # the actual flagged rule is shown
+
+
 def test_console_is_report_styled_and_plain_by_default():
     text = "\n".join(console_lines(_result(), version="0.1.4", standards=STANDARDS))
     assert "coop-sql-review" in text  # banner

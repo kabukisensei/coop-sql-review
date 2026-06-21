@@ -79,6 +79,23 @@ def test_rules_yml_can_enable_an_off_by_default_rule(tmp_path):
     assert "SQL-TABLE-LAYER-NAME" in config.enabled
 
 
+def test_invalid_severity_raises(tmp_path):
+    cfg_file = tmp_path / "rules.yml"
+    cfg_file.write_text("rules:\n  SQL-NO-SELECT-STAR:\n    severity: critical\n", encoding="utf-8")
+    with pytest.raises(StandardsError):
+        RuleConfig.load(cfg_file)
+
+
+def test_unknown_rule_ids_detected(tmp_path):
+    cfg_file = tmp_path / "rules.yml"
+    cfg_file.write_text(
+        "rules:\n  SQL-NO-SELECT-STAR:\n    enabled: false\n  SQL-TYPO:\n    enabled: false\n",
+        encoding="utf-8",
+    )
+    config = RuleConfig.load(cfg_file)
+    assert config.unknown_rule_ids({"SQL-NO-SELECT-STAR"}) == ["SQL-TYPO"]
+
+
 def test_shipped_noisy_rules_are_off_by_default():
     from coop_sql_review.rules import all_rules
 

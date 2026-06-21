@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 
 from coop_sql_review import __version__
-from coop_sql_review.diagnostics import FILE_UNREADABLE, Diagnostic
+from coop_sql_review.diagnostics import CONFIG_UNKNOWN_RULE, FILE_UNREADABLE, Diagnostic
 from coop_sql_review.engine import run_rules
 from coop_sql_review.finding import SEVERITIES
 from coop_sql_review.parser import parse_sql
@@ -270,8 +270,10 @@ def check(
     except StandardsError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    config = RuleConfig.load(Path(config_path) if config_path else default_config_path(std_path))
+    cfg_path = Path(config_path) if config_path else default_config_path(std_path)
+    config = RuleConfig.load(cfg_path)
     rules = apply_config(all_rules(), config)
+    unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
 
     # With no paths in an interactive terminal, offer a folder picker.
     if not paths and _stdio_interactive():
@@ -279,9 +281,16 @@ def check(
         if picked is not None:
             paths = tuple(str(p) for p in picked)
 
+    # A path the user typed that doesn't exist is almost always a typo — call it
+    # out so it isn't silently indistinguishable from a clean scan.
+    missing = [p for p in paths if not Path(p).exists()]
+    for p in missing:
+        click.echo(f"path not found: {p}", err=True)
+
     files = discover_sql_files(paths)
     if not files:
-        click.echo("No .sql files found.", err=True)
+        if not missing:
+            click.echo("No .sql files found.", err=True)
         return
 
     # Progress is stderr-only + TTY-gated, so it never pollutes the report
@@ -292,6 +301,16 @@ def check(
         parsed, read_diagnostics = _parse_files(files, dialect, on_file=tick)
     result = run_rules(parsed, rules)
     result.diagnostics.extend(read_diagnostics)
+    for rule_id in unknown_rules:
+        result.diagnostics.append(
+            Diagnostic(
+                severity="warning",
+                category=CONFIG_UNKNOWN_RULE,
+                file=cfg_path.as_posix(),
+                line=0,
+                message=f"rules.yml: unknown rule id '{rule_id}' - ignored",
+            )
+        )
     result.diagnostics.sort(key=lambda d: d.sort_key())
     result = result.filtered(min_severity)
 
@@ -456,7 +475,10 @@ def _force_utf8_console() -> None:
     output; worst case an old console shows a replacement glyph."""
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            # newline="" disables write-time \n -> \r\n translation, so the JSON
+            # contract (and the text report) stay byte-identical (LF) across OSes
+            # even when redirected to a file on Windows.
+            stream.reconfigure(encoding="utf-8", errors="replace", newline="")
         except (AttributeError, ValueError, OSError):
             pass  # not a reconfigurable text stream (e.g. under test capture)
 

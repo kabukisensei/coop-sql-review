@@ -17,6 +17,7 @@ from pathlib import Path
 
 import yaml
 
+from coop_sql_review.finding import SEVERITIES
 from coop_sql_review.rules.base import Rule
 
 BUNDLED_STANDARDS = Path(__file__).resolve().parent / "data" / "standards.md"
@@ -49,6 +50,7 @@ class RuleConfig:
     disabled: set[str] = field(default_factory=set)
     enabled: set[str] = field(default_factory=set)  # force-on for off-by-default rules
     severity_overrides: dict[str, str] = field(default_factory=dict)
+    configured: set[str] = field(default_factory=set)  # every rule id mentioned in the file
 
     @classmethod
     def load(cls, path: Path | None) -> "RuleConfig":
@@ -66,9 +68,27 @@ class RuleConfig:
                 disabled.add(rule_id)
             elif settings.get("enabled") is True:
                 enabled.add(rule_id)  # turn on an off-by-default rule
-            if settings.get("severity"):
-                overrides[rule_id] = settings["severity"]
-        return cls(disabled=disabled, enabled=enabled, severity_overrides=overrides)
+            severity = settings.get("severity")
+            if severity:
+                # Validate up front: an unknown severity sorts below `info` and
+                # would silently drop the rule's findings at the default floor,
+                # which violates the "never silently dropped" contract.
+                if severity not in SEVERITIES:
+                    raise StandardsError(
+                        f"rules.yml: rule '{rule_id}' has invalid severity '{severity}'; "
+                        f"expected one of {', '.join(SEVERITIES)}"
+                    )
+                overrides[rule_id] = severity
+        return cls(
+            disabled=disabled,
+            enabled=enabled,
+            severity_overrides=overrides,
+            configured=set(rules or {}),
+        )
+
+    def unknown_rule_ids(self, known: set[str]) -> list[str]:
+        """Configured rule ids that don't match any real rule (typos / removed rules)."""
+        return sorted(self.configured - known)
 
 
 def apply_config(rules: list[Rule], config: RuleConfig) -> list[Rule]:

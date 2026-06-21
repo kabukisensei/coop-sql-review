@@ -76,6 +76,28 @@ def test_no_sql_files_message(tmp_path):
     assert "No .sql files found" in result.output
 
 
+def test_nonexistent_path_is_called_out_not_silently_clean(tmp_path):
+    # A typo'd path must not look identical to a clean scan.
+    result = CliRunner().invoke(cli, ["check", str(tmp_path / "nope.sql")])
+    assert result.exit_code == 0
+    assert "path not found" in result.output
+    assert "No .sql files found" not in result.output
+
+
+def test_unknown_rule_id_in_config_warns(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules:\n  SQL-NOPE-NOT-A-RULE:\n    enabled: false\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "unknown rule id 'SQL-NOPE-NOT-A-RULE'" in result.output
+
+
+def test_json_includes_files_checked():
+    out = CliRunner().invoke(cli, ["check", FIXTURE, "--format", "json"]).output
+    payload = json.loads(out)
+    assert payload["files_checked"] >= 1
+
+
 def test_header_and_layer_rules_off_by_default(tmp_path):
     # A non-medallion table with no header would trip both rules if enabled.
     f = tmp_path / "t.sql"
