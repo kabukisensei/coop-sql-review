@@ -43,13 +43,27 @@ def _sty(text: str, *codes: str, color: bool) -> str:
     return "".join(_ANSI[c] for c in codes) + text + _ANSI["reset"]
 
 
+# The agent JSON contract version. Bump on any breaking change to the shape so a
+# consumer can pin/branch on it; additive fields don't require a bump.
+SCHEMA_VERSION = 1
+
+
+def _verdict(result: Result) -> dict:
+    """A compact, advisory machine verdict the agent can route on (never a gate)."""
+    summary = result.summary()
+    present = [s for s in SEVERITIES if summary[s]]
+    return {"clean": not result.findings, "highest_severity": present[0] if present else None}
+
+
 def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
     """The agent contract: stable keys, sorted, deterministic."""
     return {
         "tool": "coop-sql-review",
+        "schema_version": SCHEMA_VERSION,
         "version": version,
         "standards": {"path": standards.get("path", ""), "sha256": standards.get("sha256", "")},
         "files_checked": result.files_checked,  # lets the agent tell "clean" from "nothing parsed"
+        "verdict": _verdict(result),
         "findings": [
             {
                 "rule_id": f.rule_id,
@@ -59,6 +73,7 @@ def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
                 "object": f.object,
                 "message": f.message,
                 "standard_ref": f.standard_ref,
+                "fingerprint": f.fingerprint(),  # stable, line-independent identity
             }
             for f in result.findings
         ],
@@ -71,6 +86,7 @@ def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
                 "line": a.line,
                 "note": a.note,
                 "standard_ref": a.standard_ref,
+                "fingerprint": a.fingerprint(),
             }
             for a in result.agent_review
         ],

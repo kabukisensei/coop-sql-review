@@ -46,7 +46,7 @@ pipx install coop-sql-review
 ```
 coop-sql-review --version
 ```
-You should see a version number like `coop-sql-review, version 0.1.6`.
+You should see a version number like `coop-sql-review, version 0.2.0`.
 
 > Want the very latest unreleased build instead of the PyPI release? Install straight from the
 > repository:
@@ -90,7 +90,7 @@ A typical report looks like this:
 ========================================================================
   coop-sql-review                                   SQL standards report
 ========================================================================
-  standards: standards.md    files checked: 1    v0.1.6
+  standards: standards.md    files checked: 1    v0.2.0
 
   silver/dim_customer.sql
   ----------------------------------------------------------------------
@@ -160,6 +160,8 @@ review.txt`.
 | `--open` / `--no-open` | Whether to open an HTML report in your browser when it's written. Default: opens automatically when you're in a terminal; `--no-open` to skip. |
 | `--color` / `--no-color` | Force colored or plain text output. Default: auto — colored at a terminal, plain when piped or redirected (also honors `NO_COLOR`). |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
+| `--baseline <file>` | Hide findings already recorded in this baseline file — only **new** findings appear (see §9). |
+| `--write-baseline <file>` | Record the current findings to this baseline file (then report as usual). |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
 | `--config <rules.yml>` | Turn rules on/off or change their severity (see §7). |
 | `--log-file <file>` | Also write the diagnostics (parse problems, errors) to a file. |
@@ -239,7 +241,30 @@ upgrade command.)
 
 ---
 
-## 9. Troubleshooting
+## 9. Adopting on an existing code base (suppressions)
+
+Two deterministic, never-blocking ways to silence findings you've already triaged, so a legacy
+estate doesn't make every run noisy:
+
+- **Inline** — a comment on a finding's line (or the line directly above it):
+  ```sql
+  -- coop-sql-review:ignore SQL-NO-SELECT-STAR reason: legacy view, rewrite scheduled
+  SELECT * FROM dbo.legacy_view;
+  ```
+  List several rule ids (`ignore SQL-A, SQL-B`), or a bare `ignore` / `*` to silence every rule on
+  that line. The `reason:` text is for humans; the parser ignores it.
+- **Baseline (ratchet)** — record today's findings, then surface only *new* ones:
+  ```sh
+  coop-sql-review check sql-folder --write-baseline sql-baseline.json   # once, to capture the status quo
+  coop-sql-review check sql-folder --baseline sql-baseline.json         # thereafter: only new findings appear
+  ```
+  The baseline keys on each finding's stable, line-independent `fingerprint` (also in the JSON), so
+  edits above a statement don't disturb it. A baseline entry that no longer matches anything (you
+  fixed it) is reported as a diagnostic; re-run `--write-baseline` to prune.
+
+---
+
+## 10. Troubleshooting
 
 - **`coop-sql-review: command not found`** — you likely skipped `pipx ensurepath`, or didn't
   reopen the terminal. Run `python -m pipx ensurepath`, then close and reopen the terminal.

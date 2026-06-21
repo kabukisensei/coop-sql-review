@@ -98,6 +98,48 @@ def test_json_includes_files_checked():
     assert payload["files_checked"] >= 1
 
 
+def test_inline_ignore_directive_suppresses(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("-- coop-sql-review:ignore SQL-NO-SELECT-STAR\nSELECT * FROM t;\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", str(f)]).output
+    assert "SQL-NO-SELECT-STAR" not in out
+    assert "no issues found" in out
+
+
+def test_baseline_write_then_suppresses(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    written = CliRunner().invoke(cli, ["check", str(f), "--write-baseline", str(bl)])
+    assert written.exit_code == 0 and bl.exists()
+    out = CliRunner().invoke(cli, ["check", str(f), "--baseline", str(bl)]).output
+    assert "SQL-NO-SELECT-STAR" not in out
+    assert "no issues found" in out
+
+
+def test_baseline_lets_new_findings_through(tmp_path):
+    a = tmp_path / "a.sql"
+    a.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    CliRunner().invoke(cli, ["check", str(a), "--write-baseline", str(bl)])
+    # a NEW finding in a different file is keyed differently -> it surfaces
+    b = tmp_path / "b.sql"
+    b.write_text("SELECT * FROM u;\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", str(tmp_path), "--baseline", str(bl)]).output
+    assert "SQL-NO-SELECT-STAR" in out  # b.sql's finding is new
+    assert "b.sql" in out
+
+
+def test_stale_baseline_entry_warns(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    CliRunner().invoke(cli, ["check", str(f), "--write-baseline", str(bl)])
+    f.write_text("SELECT a FROM t;\n", encoding="utf-8")  # fix it -> the baseline entry is now stale
+    out = CliRunner().invoke(cli, ["check", str(f), "--baseline", str(bl)]).output
+    assert "baseline:" in out and "no longer match" in out
+
+
 def test_header_and_layer_rules_off_by_default(tmp_path):
     # A non-medallion table with no header would trip both rules if enabled.
     f = tmp_path / "t.sql"

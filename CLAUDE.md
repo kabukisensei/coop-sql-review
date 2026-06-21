@@ -104,7 +104,11 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
   override, no rebuild needed).
 - **`report.py`** — the agent JSON contract + the sectioned, colorizable console report
   (`console_lines`) + the Markdown (`to_markdown`) and branded self-contained HTML (`to_html`)
-  reports + the `--log-file` text.
+  reports + the `--log-file` text. The JSON carries `schema_version`, a `verdict`, `files_checked`,
+  and a stable `fingerprint` per finding/agent-review item.
+- **`suppressions.py`** — inline `coop-sql-review:ignore <RULE>` comments (the finding's line or the
+  line above; bare/`*` = all) and a fingerprint **baseline** (`--write-baseline` / `--baseline`) for
+  ratcheting on a legacy estate. Both filter findings in `check` before the `--min-severity` floor.
 
 ## Adding a rule
 

@@ -64,11 +64,14 @@ coop-sql-review --version
 `--format json` emits (stable keys, sorted, deterministic):
 ```json
 {
-  "tool": "coop-sql-review", "version": "x.y.z",
+  "tool": "coop-sql-review", "schema_version": 1, "version": "x.y.z",
   "standards": {"path": "...", "sha256": "..."},
+  "files_checked": 12,
+  "verdict": {"clean": false, "highest_severity": "warning"},
   "findings": [
     {"rule_id":"SQL-NO-SELECT-STAR","severity":"warning","file":"silver/dim_customer.sql",
-     "line":12,"object":"silver.dim_customer","message":"SELECT * in production code","standard_ref":"§11"}
+     "line":12,"object":"silver.dim_customer","message":"SELECT * in production code","standard_ref":"§11",
+     "fingerprint":"7ae42b710c08"}
   ],
   "summary": {"error":0,"warning":3,"info":5},
   "agent_review": [

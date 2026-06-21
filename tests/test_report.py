@@ -29,10 +29,21 @@ def test_json_contract_keys():
     assert payload["version"] == "0.1.0"
     assert payload["standards"] == {"path": "docs/standards.md", "sha256": "abc123"}
     assert payload["summary"] == {"error": 0, "warning": 2, "info": 0}
+    assert payload["schema_version"] == 1
+    assert set(payload["verdict"]) == {"clean", "highest_severity"}
     first = payload["findings"][0]
-    assert set(first) == {"rule_id", "severity", "file", "line", "object", "message", "standard_ref"}
+    assert set(first) == {
+        "rule_id",
+        "severity",
+        "file",
+        "line",
+        "object",
+        "message",
+        "standard_ref",
+        "fingerprint",
+    }
     review = payload["agent_review"][0]
-    assert set(review) == {"rule_id", "file", "object", "line", "note", "standard_ref"}
+    assert set(review) == {"rule_id", "file", "object", "line", "note", "standard_ref", "fingerprint"}
 
 
 def test_json_text_is_deterministic_and_sorted():

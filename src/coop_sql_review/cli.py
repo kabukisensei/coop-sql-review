@@ -16,7 +16,12 @@ from pathlib import Path
 import click
 
 from coop_sql_review import __version__
-from coop_sql_review.diagnostics import CONFIG_UNKNOWN_RULE, FILE_UNREADABLE, Diagnostic
+from coop_sql_review.diagnostics import (
+    BASELINE_STALE,
+    CONFIG_UNKNOWN_RULE,
+    FILE_UNREADABLE,
+    Diagnostic,
+)
 from coop_sql_review.engine import run_rules
 from coop_sql_review.finding import SEVERITIES
 from coop_sql_review.parser import parse_sql
@@ -24,6 +29,12 @@ from coop_sql_review.progress import Progress, should_enable
 from coop_sql_review.report import console_lines, json_text, log_text, to_html, to_markdown
 from coop_sql_review.rules import all_rules
 from coop_sql_review.sql_model import ParsedFile
+from coop_sql_review.suppressions import (
+    is_inline_suppressed,
+    load_baseline,
+    scan_directives,
+    write_baseline,
+)
 from coop_sql_review.standards import (
     RuleConfig,
     StandardsError,
@@ -240,6 +251,20 @@ def cli(ctx: click.Context) -> None:
     show_default=True,
     help="Hide findings below this severity.",
 )
+@click.option(
+    "--baseline",
+    "baseline_path",
+    type=click.Path(),
+    default=None,
+    help="Suppress findings already recorded in this baseline file (only new ones surface).",
+)
+@click.option(
+    "--write-baseline",
+    "write_baseline_path",
+    type=click.Path(),
+    default=None,
+    help="Write the current findings to this baseline file (ratchet setup), then report as usual.",
+)
 @click.option("--dialect", default="tsql", show_default=True, help="sqlglot dialect to parse with.")
 @click.option(
     "--log-file",
@@ -260,6 +285,8 @@ def check(
     open_report: bool | None,
     color_flag: bool | None,
     min_severity: str,
+    baseline_path: str | None,
+    write_baseline_path: str | None,
     dialect: str,
     log_file: str | None,
     strict: bool,
@@ -311,6 +338,33 @@ def check(
                 message=f"rules.yml: unknown rule id '{rule_id}' - ignored",
             )
         )
+
+    # Suppressions: inline `coop-sql-review:ignore` directives (always), then a
+    # fingerprint baseline (opt-in). Both run before the --min-severity floor so a
+    # suppressed finding is gone regardless of severity.
+    inline = {pf.path: scan_directives(pf.text) for pf in parsed}
+    result.findings = [
+        f for f in result.findings if not is_inline_suppressed(f.rule_id, f.line, inline.get(f.file, {}))
+    ]
+    if write_baseline_path:
+        count = write_baseline(Path(write_baseline_path), [f.fingerprint() for f in result.findings])
+        click.echo(f"Wrote baseline of {count} finding(s) to {write_baseline_path}", err=True)
+    elif baseline_path:
+        baseline_fps = load_baseline(Path(baseline_path))
+        seen = {f.fingerprint() for f in result.findings}
+        result.findings = [f for f in result.findings if f.fingerprint() not in baseline_fps]
+        stale = len(baseline_fps - seen)
+        if stale:
+            result.diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    category=BASELINE_STALE,
+                    file=Path(baseline_path).as_posix(),
+                    line=0,
+                    message=f"baseline: {stale} entr{'y' if stale == 1 else 'ies'} no longer match a "
+                    "current finding; re-run --write-baseline to prune",
+                )
+            )
     result.diagnostics.sort(key=lambda d: d.sort_key())
     result = result.filtered(min_severity)
 

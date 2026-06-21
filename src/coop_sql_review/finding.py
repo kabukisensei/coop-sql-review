@@ -7,6 +7,7 @@ so the JSON contract and text report are byte-stable across runs and OSes.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 SEVERITIES = ("error", "warning", "info")
@@ -16,6 +17,12 @@ _SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2}
 def severity_rank(severity: str) -> int:
     """Order key for a severity; unknown severities sort last."""
     return _SEVERITY_RANK.get(severity, len(_SEVERITY_RANK))
+
+
+def _fingerprint(*parts: str) -> str:
+    """A short, stable hash over the identity parts (deliberately excludes the
+    line number and severity, which shift with edits / config)."""
+    return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
 def at_or_above(severity: str, threshold: str) -> bool:
@@ -38,6 +45,11 @@ class Finding:
     def sort_key(self) -> tuple:
         return (self.file, self.line, severity_rank(self.severity), self.rule_id, self.object, self.message)
 
+    def fingerprint(self) -> str:
+        """Stable, line-independent identity, so a consumer can track or suppress
+        this finding across runs even as lines shift above it."""
+        return _fingerprint(self.rule_id, self.file, self.object, self.message)
+
 
 @dataclass(frozen=True)
 class AgentReviewItem:
@@ -52,3 +64,7 @@ class AgentReviewItem:
 
     def sort_key(self) -> tuple:
         return (self.file, self.rule_id, self.object, self.line, self.note)
+
+    def fingerprint(self) -> str:
+        """Stable, line-independent identity (see :meth:`Finding.fingerprint`)."""
+        return _fingerprint(self.rule_id, self.file, self.object, self.note)
