@@ -1,49 +1,17 @@
-"""Diagnostics — problems the tool hit while *processing* SQL, as opposed to
-:class:`Finding`s (which are deviations from the standards).
+"""Processing diagnostics — re-exported from the shared ``coop-review-core``.
 
-These exist so nothing fails silently: a file that won't parse, a statement
-sqlglot can only treat as an opaque command (so some rules can't see inside
-it), or a rule that raised — each becomes a Diagnostic the user can see in
-both the console report and the JSON, and can write to a log with
-``--log-file``, so the gap can be understood and fixed.
-
-Severity:
-- error   : a rule crashed, or a file could not be read (a real bug / blocker)
-- warning : analysis was degraded (a batch didn't parse, or parsed opaquely)
-            — findings in that region may be incomplete
+The Diagnostic model and category constants are tool-agnostic, so they live in
+``coop_review_core.diagnostics`` and are re-exported here for backward-compatible
+imports (``from coop_sql_review.diagnostics import Diagnostic`` still works).
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-DIAGNOSTIC_SEVERITIES = ("error", "warning")
-
-# categories
-RULE_ERROR = "rule_error"
-PARSE_FAILED = "parse_failed"
-PARSE_DEGRADED = "parse_degraded"
-FILE_UNREADABLE = "file_unreadable"
-CONFIG_UNKNOWN_RULE = "config_unknown_rule"  # rules.yml names a rule id that doesn't exist
-BASELINE_STALE = "baseline_stale"  # a baseline entry no longer matches any current finding
-
-
-@dataclass(frozen=True)
-class Diagnostic:
-    """One processing problem, at a file (and line, when known)."""
-
-    severity: str
-    category: str
-    file: str
-    line: int  # 0 when file-level / not line-specific
-    message: str
-    rule_id: str = ""
-
-    def sort_key(self) -> tuple:
-        return (self.file, self.line, self.category, self.rule_id, self.message)
-
-    def as_line(self) -> str:
-        """One-line rendering for the console and the log file."""
-        where = f"{self.file}:{self.line}" if self.line else self.file
-        tag = f"{self.category}" + (f"/{self.rule_id}" if self.rule_id else "")
-        return f"[{self.severity}] {where}  {tag}: {self.message}"
+from coop_review_core.diagnostics import (  # noqa: F401
+    BASELINE_STALE,
+    CONFIG_UNKNOWN_RULE,
+    DIAGNOSTIC_SEVERITIES,
+    FILE_UNREADABLE,
+    PARSE_DEGRADED,
+    PARSE_FAILED,
+    RULE_ERROR,
+    Diagnostic,
+)

@@ -79,6 +79,14 @@ PYTHONPATH=src .venv/bin/python -m coop_sql_review rules
 
 ## Architecture
 
+**Shared core:** the tool-agnostic infrastructure lives in the published
+[`coop-review-core`](https://github.com/kabukisensei/coop-review-core) package (runtime dep). The
+local `progress.py`, `diagnostics.py`, `suppressions.py`, `upgrade.py`, and `standards.py` are now
+**thin shims** re-exporting / forwarding to core (baking in this tool's name); `finding.py` sources
+`SEVERITIES`/`severity_rank`/`at_or_above`/`fingerprint` from `coop_review_core.severity` but keeps
+the tool's own `Finding`/`AgentReviewItem`. Fix shared infra in `coop-review-core`; keep the parser,
+rules, Rule/RuleContext/Result, and `standards.md` here.
+
 ```
 .sql files → parse (sqlglot tsql AST + raw text + line numbers + comments) → rule engine → Findings + Diagnostics → render (text/json/markdown/html)
 ```

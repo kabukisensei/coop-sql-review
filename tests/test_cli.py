@@ -223,7 +223,13 @@ def test_no_open_flag_suppresses_even_when_interactive(monkeypatch):
 def test_upgrade_shows_command_without_applying(monkeypatch):
     from coop_sql_review import upgrade as upmod
 
-    plan = upmod.UpgradePlan("pipx", None, "0.1.0", "latest release is 0.2.0", pip_spec=None)
+    plan = upmod.UpgradePlan(
+        package_name="coop-sql-review",
+        install_method="pipx",
+        checkout=None,
+        tool_installed="0.1.0",
+        tool_note="latest release is 0.2.0",
+    )
     monkeypatch.setattr(upmod, "build_plan", lambda *a, **k: plan)
     # If anything tried to apply, it would call subprocess; make that explode.
     monkeypatch.setattr(

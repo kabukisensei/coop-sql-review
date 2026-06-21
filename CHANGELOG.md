@@ -5,6 +5,14 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [0.2.2] — 2026-06-21
+### Changed
+- **Internal de-duplication**: the tool-agnostic infrastructure (progress, diagnostics, the
+  severity ordering + finding fingerprint, inline/baseline suppressions, self-update, and the
+  rules.yml config layer) now comes from the shared **`coop-review-core`** package (new runtime
+  dependency `coop-review-core>=0.1.0`). Behavior, CLI, and the JSON contract are unchanged — fingerprints
+  are byte-identical — but a fix to that shared infra now lands once instead of being copy-pasted.
+
 ## [0.2.1] — 2026-06-21
 ### Added
 - `rules.yml` now accepts a per-rule `params:` block (tunables, e.g. thresholds) — infrastructure

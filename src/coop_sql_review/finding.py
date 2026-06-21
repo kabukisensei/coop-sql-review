@@ -7,27 +7,16 @@ so the JSON contract and text report are byte-stable across runs and OSes.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 
-SEVERITIES = ("error", "warning", "info")
-_SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2}
-
-
-def severity_rank(severity: str) -> int:
-    """Order key for a severity; unknown severities sort last."""
-    return _SEVERITY_RANK.get(severity, len(_SEVERITY_RANK))
-
-
-def _fingerprint(*parts: str) -> str:
-    """A short, stable hash over the identity parts (deliberately excludes the
-    line number and severity, which shift with edits / config)."""
-    return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:12]
-
-
-def at_or_above(severity: str, threshold: str) -> bool:
-    """True when ``severity`` is as serious as ``threshold`` (error >= warning >= info)."""
-    return severity_rank(severity) <= severity_rank(threshold)
+# Severity ordering + the line-independent fingerprint live in the shared core;
+# re-exported here so the rule modules keep importing them from `finding`.
+from coop_review_core.severity import (  # noqa: F401
+    SEVERITIES,
+    at_or_above,
+    severity_rank,
+)
+from coop_review_core.severity import fingerprint as _fingerprint
 
 
 @dataclass(frozen=True)
