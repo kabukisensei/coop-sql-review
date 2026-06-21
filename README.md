@@ -46,9 +46,10 @@ pipx install coop-sql-review
 ```
 coop-sql-review --version
 ```
-You should see a version number like `coop-sql-review, version 0.1.0`.
+You should see a version number like `coop-sql-review, version 0.1.4`.
 
-> Not published to PyPI yet? Install straight from the repository instead:
+> Want the very latest unreleased build instead of the PyPI release? Install straight from the
+> repository:
 > ```
 > pipx install git+https://github.com/kabukisensei/coop-sql-review.git
 > ```
@@ -86,18 +87,31 @@ That's it. The tool prints a report and **always finishes successfully** — it 
 A typical report looks like this:
 
 ```
-silver/dim_customer.sql
-  ! silver/dim_customer.sql:12  [warning] SQL-NO-SELECT-STAR (§11)
-      SELECT * in production code — list the columns explicitly (§11).
-  x silver/dim_customer.sql:4   [error] SQL-NO-ALTER-COLUMN (§9)
-      ALTER COLUMN is not supported in Fabric DW — use the CTAS + RENAME workaround (§9).
+========================================================================
+  coop-sql-review                                   SQL standards report
+========================================================================
+  standards: standards.md    files checked: 1    v0.1.4
 
-Checked 1 file(s): 1 error, 1 warning.
-Advisory only - nothing was changed or blocked.
+  silver/dim_customer.sql
+  ----------------------------------------------------------------------
+   ERROR SQL-NO-ALTER-COLUMN  §9   silver.dim_customer
+         silver/dim_customer.sql:4
+         ALTER COLUMN is not supported in Fabric DW — use the CTAS +
+         RENAME workaround (§9).
+   WARN  SQL-NO-SELECT-STAR  §11   silver.dim_customer
+         silver/dim_customer.sql:12
+         SELECT * in production code — list the columns explicitly (§11).
+
+========================================================================
+  SUMMARY    1 error   1 warning   0 info
+========================================================================
+  Advisory only - nothing was changed or blocked.
 ```
 
-- Each line shows **`file:line`**, a **severity**, the **rule** that fired, and the **§ section**
-  of the standards it comes from.
+- Findings are grouped into a **section per file**. Each one shows a **severity badge**
+  (`ERROR`/`WARN`/`INFO`), the **rule** that fired and the **§ section** of the standards, then the
+  **`file:line`** location and the message. At a terminal the report is colorized; piped or
+  redirected (or with `--no-color`, or `NO_COLOR` set) it falls back to plain text.
 - **Severities:**
   - **error** — almost certainly broken in Fabric (e.g. `ALTER COLUMN`, which Fabric rejects).
   - **warning** — against the standard; worth fixing.
@@ -144,6 +158,7 @@ review.txt`.
 | `-o`, `--output <file>` | Write the report to a file instead of the screen (best for big runs). |
 | `--format text\|json\|markdown\|html` | `text` (default) for the screen, `html` for a clean browser report, `markdown` for a readable file, `json` for tools/the agent. |
 | `--open` / `--no-open` | Whether to open an HTML report in your browser when it's written. Default: opens automatically when you're in a terminal; `--no-open` to skip. |
+| `--color` / `--no-color` | Force colored or plain text output. Default: auto — colored at a terminal, plain when piped or redirected (also honors `NO_COLOR`). |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
 | `--config <rules.yml>` | Turn rules on/off or change their severity (see §7). |
@@ -219,7 +234,8 @@ This checks whether a newer version exists and **prints the exact command to run
 
 It doesn't upgrade in place: a program can't reliably replace its own files while it's running,
 so just **open a new terminal and run the command it shows you**. (`update` and `upgrade` are the
-same command; add `--check` to only see whether an update is available.)
+same command; add `--check` to only report whether an update is available, without printing the
+upgrade command.)
 
 ---
 

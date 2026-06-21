@@ -19,8 +19,8 @@ company analytics agent, which layers semantic judgment via the `agent_review` l
 
 **Status: fully built.** All ~30 rules across `RULES.md` (Tier-1/2/3 deterministic, the
 agent-judgment rules, and the checkable `docs/standards-proposed-additions.md` rules §A–§F) are
-implemented, adversarially verified, and green. Remaining roadmap is operational: publish to PyPI
-(M6) and wire into the company analytics agent.
+implemented, adversarially verified, and green. Published to PyPI (0.1.4 is live via the `v*`-tag
+trusted-publishing workflow). Remaining roadmap is operational: wire into the company analytics agent.
 
 User-facing usage docs live in `README.md` (written for readers with little terminal experience).
 
@@ -80,7 +80,7 @@ PYTHONPATH=src .venv/bin/python -m coop_sql_review rules
 ## Architecture
 
 ```
-.sql files → parse (sqlglot tsql AST + raw text + line numbers + comments) → rule engine → Findings + Diagnostics → render (text + JSON)
+.sql files → parse (sqlglot tsql AST + raw text + line numbers + comments) → rule engine → Findings + Diagnostics → render (text/json/markdown/html)
 ```
 
 Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
@@ -102,7 +102,9 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
 - **`standards.py`** — resolves the standards file (bundled `data/standards.md`, or `--standards`),
   computes its sha256 for the JSON, and applies an optional `rules.yml` (enable/disable + severity
   override, no rebuild needed).
-- **`report.py`** — the agent JSON contract + the human console report + the `--log-file` text.
+- **`report.py`** — the agent JSON contract + the sectioned, colorizable console report
+  (`console_lines`) + the Markdown (`to_markdown`) and branded self-contained HTML (`to_html`)
+  reports + the `--log-file` text.
 
 ## Adding a rule
 

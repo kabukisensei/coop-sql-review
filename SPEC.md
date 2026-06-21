@@ -4,8 +4,9 @@
 An **offline, advisory SQL standards linter** for our Fabric DW estate. It parses `.sql`
 files, checks each object/statement against `docs/standards.md` (our standards + Microsoft/
 Fabric best practices), and surfaces anything that doesn't match. **Advisory, never
-blocking** — it reports; it never edits, rejects, or stops anything. Two outputs: a human
-report (console / markdown) and **machine JSON for the agent**.
+blocking** — it reports; it never edits, rejects, or stops anything. Human reports (a sectioned,
+colorized terminal report, Markdown, or a self-contained branded HTML file) and **machine JSON for
+the agent**.
 
 ## Who runs it
 - A developer, on changed SQL before committing (or in CI as a non-failing report).
@@ -25,7 +26,7 @@ report (console / markdown) and **machine JSON for the agent**.
 
 ## Architecture
 ```
-.sql files → parse (sqlglot AST + raw text w/ line numbers) → rule engine → Findings → render (text + JSON)
+.sql files → parse (sqlglot AST + raw text w/ line numbers) → rule engine → Findings → render (text/json/markdown/html)
 ```
 - **Rule** = `{id, title, severity, category, standard_ref, check(parsed, ctx) -> [Finding]}`,
   each a deterministic built-in.
@@ -38,16 +39,26 @@ report (console / markdown) and **machine JSON for the agent**.
 
 See `RULES.md` for the full taxonomy (deterministic vs agent-judgment, with tiers).
 
-## CLI (proposed)
+## CLI
 ```
-coop-sql-review check [PATHS...] --standards <path> [--format text|json] [--min-severity info|warning|error] [--strict]
+coop-sql-review check [PATHS...] --standards <path> [--config <path>]
+                      [--format text|json|markdown|html] [-o/--output <path>] [--open/--no-open]
+                      [--color/--no-color] [--min-severity info|warning|error] [--dialect tsql]
+                      [--log-file <path>] [--strict]
 coop-sql-review rules                  # list rules, enabled state, and which require the agent
+coop-sql-review upgrade                # prints the command to update; never self-applies (alias: update)
 coop-sql-review --version
 ```
-- Default exit code **0** (advisory). `--strict` makes it nonzero when findings ≥ threshold —
-  for teams who *opt in* to a CI gate. Default stays non-blocking.
+- Default exit code **0** (advisory). `--strict` exits **2** when any reported finding remains
+  (after the `--min-severity` filter) — for teams who *opt in* to a CI gate. Default non-blocking.
 - `--standards` points at the canonical file (e.g. the company standards repo's
   `sql-standards.md`); the bundled `docs/standards.md` is the default/fallback.
+- The default text report is a sectioned terminal report (banner, one section per file with
+  `ERROR`/`WARN`/`INFO` badges, a `SUMMARY` panel); colorized at an interactive terminal and plain
+  ASCII when piped / redirected / `--no-color` / `NO_COLOR`.
+- `--format html` writes a self-contained, branded HTML file, prints its path, and (when
+  interactive, unless `--no-open`) opens it in the browser; `--format markdown`/text honor `-o`.
+- Running `check` with no paths in an interactive terminal opens a folder picker.
 
 ## Agent integration contract (how it "wires in" later)
 `--format json` emits (stable keys, sorted, deterministic):
@@ -61,7 +72,10 @@ coop-sql-review --version
   ],
   "summary": {"error":0,"warning":3,"info":5},
   "agent_review": [
-    {"rule_id":"SQL-UPSERT-CHOICE","file":"...","object":"...","note":"MERGE detected — judge appropriateness per §5"}
+    {"rule_id":"SQL-UPSERT-CHOICE","file":"...","line":20,"object":"...","note":"MERGE detected — judge appropriateness per §5","standard_ref":"§5"}
+  ],
+  "diagnostics": [
+    {"severity":"warning","category":"parse_failed","file":"...","line":0,"message":"...","rule_id":""}
   ]
 }
 ```
@@ -76,7 +90,7 @@ standards. Same two-audience pattern as coop-data-doc (machine + human).
 - **M3** — diagnostics output (text + JSON), advisory exit codes.
 - **M4** — standards-driven enable/config (`rules.yml` ↔ standards.md sections).
 - **M5** — Microsoft/Fabric best-practice rules (see `docs/standards-proposed-additions.md`).
-- **M6** — package + publish (trusted publishing) + wire into the agent.
+- **M6** — package + publish (trusted publishing) ✅ *done — published on PyPI* + wire into the agent (remaining).
 
 ## Kickoff (paste into a NEW session launched from this folder)
 > Building **coop-sql-review**, an offline advisory SQL standards linter for our Fabric DW.

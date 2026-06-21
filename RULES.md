@@ -6,6 +6,11 @@ more rules. **Method**: `AST` = sqlglot tree; `text` = raw lines/regex (comments
 first (high value + reliably checkable). Severities are defaults; `rules.yml`/standards.md can
 override.
 
+Some rules ship **off by default** (`SQL-ALIAS-DESCRIPTIVE`, `SQL-CTE-PREFIX`,
+`SQL-HEADER-COMMENT`, `SQL-INSERT-ALIAS-MATCH`, `SQL-QUERY-LABEL`, `SQL-TABLE-LAYER-NAME`) and must
+be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules` marks these
+`[off by default]`.
+
 ## Deterministic rules — build these
 
 | Rule ID | § | What it flags | Sev | Method | Tier |

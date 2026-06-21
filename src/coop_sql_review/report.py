@@ -11,14 +11,36 @@ from __future__ import annotations
 import base64
 import html
 import json
+import textwrap
 from pathlib import Path
 
 from coop_sql_review.engine import Result
 from coop_sql_review.finding import SEVERITIES
 
-# ASCII-only markers: a legacy Windows console (cp1252/cp437) raises
-# UnicodeEncodeError on box/geometric glyphs, so keep console chrome ASCII.
-_SYMBOL = {"error": "x", "warning": "!", "info": "-"}
+# The terminal report's chrome (banner, badges, labels) stays ASCII so it is
+# safe on a legacy Windows console (cp1252/cp437) and the no-color output is
+# byte-stable; finding messages pass through as authored. Color is layered on
+# only when the caller asks for it (an interactive terminal) — and ANSI escape
+# bytes are themselves ASCII, so even the colored chrome stays cp1252-safe.
+_REPORT_WIDTH = 72
+_BADGE = {"error": "ERROR", "warning": "WARN ", "info": "INFO "}
+_BADGE_COLOR = {"error": "red", "warning": "yellow", "info": "blue"}
+_ANSI = {
+    "reset": "\033[0m",
+    "bold": "\033[1m",
+    "dim": "\033[2m",
+    "red": "\033[31m",
+    "yellow": "\033[33m",
+    "blue": "\033[34m",
+    "cyan": "\033[36m",
+}
+
+
+def _sty(text: str, *codes: str, color: bool) -> str:
+    """Wrap text in ANSI codes when ``color`` is on; return it unchanged otherwise."""
+    if not color or not codes:
+        return text
+    return "".join(_ANSI[c] for c in codes) + text + _ANSI["reset"]
 
 
 def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
@@ -78,46 +100,93 @@ def json_text(result: Result, *, version: str, standards: dict[str, str]) -> str
     )
 
 
-def console_lines(result: Result) -> list[str]:
-    """Human report grouped by file, then a summary. Advisory wording."""
+def console_lines(
+    result: Result,
+    *,
+    version: str = "",
+    standards: dict[str, str] | None = None,
+    color: bool = False,
+) -> list[str]:
+    """A report-style terminal summary: a banner, one section per file with
+    severity-badged findings, then a summary panel. Deterministic with ASCII
+    chrome; ``color`` only layers ANSI on top (opt-in, for an interactive
+    terminal). Advisory wording throughout."""
+    bar = "=" * _REPORT_WIDTH
+    indent = " " * 9  # aligns continuation lines under the rule id (3 + badge 5 + 1)
     lines: list[str] = []
+
+    # ---- banner ----
+    title, subtitle = "coop-sql-review", "SQL standards report"
+    pad = max(2, _REPORT_WIDTH - 2 - len(title) - len(subtitle))
+    lines.append(_sty(bar, "cyan", color=color))
+    lines.append(
+        "  " + _sty(title, "bold", "cyan", color=color) + " " * pad + _sty(subtitle, "dim", color=color)
+    )
+    lines.append(_sty(bar, "cyan", color=color))
+    meta = []
+    if standards and standards.get("path"):
+        meta.append(f"standards: {Path(standards['path']).name}")  # filename only; full path is in the JSON
+    meta.append(f"files checked: {result.files_checked}")
+    if version:
+        meta.append(f"v{version}")
+    lines.append("  " + _sty("    ".join(meta), "dim", color=color))
+
+    # ---- findings, grouped by file ----
     by_file: dict[str, list] = {}
     for finding in result.findings:
         by_file.setdefault(finding.file, []).append(finding)
 
     for file in sorted(by_file):
         lines.append("")
-        lines.append(file)
-        for finding in by_file[file]:
-            symbol = _SYMBOL.get(finding.severity, "-")
-            lines.append(
-                f"  {symbol} {finding.file}:{finding.line}  "
-                f"[{finding.severity}] {finding.rule_id} ({finding.standard_ref})"
+        lines.append("  " + _sty(file, "bold", color=color))
+        lines.append("  " + _sty("-" * (_REPORT_WIDTH - 2), "dim", color=color))
+        for f in by_file[file]:
+            badge = _sty(
+                _BADGE.get(f.severity, "     "), _BADGE_COLOR.get(f.severity, "blue"), "bold", color=color
             )
-            lines.append(f"      {finding.message}")
+            head = f"   {badge} " + _sty(f.rule_id, "bold", color=color) + f"  {f.standard_ref}"
+            if f.object:
+                head += f"   {f.object}"
+            lines.append(head)
+            lines.append(indent + _sty(f"{f.file}:{f.line}", "dim", color=color))  # clickable in editors
+            for wrapped in textwrap.wrap(f.message, _REPORT_WIDTH - 9):
+                lines.append(indent + wrapped)
 
-    # Diagnostics (processing problems) are always shown — they explain gaps
-    # in coverage and surface rule errors so they can be fixed.
+    # ---- diagnostics (processing problems) — always shown; they explain gaps ----
     if result.diagnostics:
         lines.append("")
-        lines.append("Diagnostics (processing problems - analysis may be incomplete):")
-        for diag in result.diagnostics:
-            lines.append(f"  {diag.as_line()}")
-
-    summary = result.summary()
-    head = ", ".join(f"{summary[s]} {s}" for s in SEVERITIES if summary[s]) or "no issues"
-    lines.append("")
-    lines.append(f"Checked {result.files_checked} file(s): {head}.")
-    diag = result.diagnostic_summary()
-    if diag["error"] or diag["warning"]:
-        bits = ", ".join(f"{diag[s]} {s}" for s in ("error", "warning") if diag[s])
-        lines.append(f"Diagnostics: {bits} (see above; rule errors are bugs worth reporting).")
-    if result.agent_review:
         lines.append(
-            f"{len(result.agent_review)} construct(s) flagged for agent review "
-            "(judgment required - see --format json)."
+            "  " + _sty("Diagnostics (processing problems - analysis may be incomplete)", "bold", color=color)
         )
-    lines.append("Advisory only - nothing was changed or blocked.")
+        lines.append("  " + _sty("-" * (_REPORT_WIDTH - 2), "dim", color=color))
+        for diag in result.diagnostics:
+            lines.append("   " + diag.as_line())
+
+    # ---- summary panel ----
+    summary = result.summary()
+    total = sum(summary.values())
+    lines.append("")
+    lines.append(_sty(bar, "cyan", color=color))
+    if total == 0 and not result.diagnostics:
+        lines.append("  " + _sty("SUMMARY", "bold", color=color) + "    no issues found")
+    else:
+        segs = [
+            _sty(f"{summary[s]} {s}", _BADGE_COLOR[s], "bold", color=color)
+            if summary[s]
+            else _sty(f"{summary[s]} {s}", "dim", color=color)
+            for s in SEVERITIES
+        ]
+        lines.append("  " + _sty("SUMMARY", "bold", color=color) + "    " + "   ".join(segs))
+        diag = result.diagnostic_summary()
+        if result.agent_review:
+            lines.append(
+                " " * 13 + _sty(f"{len(result.agent_review)} flagged for agent review", "dim", color=color)
+            )
+        if diag["error"] or diag["warning"]:
+            bits = ", ".join(f"{diag[s]} {s}" for s in ("error", "warning") if diag[s])
+            lines.append(" " * 13 + _sty(f"diagnostics: {bits}", "dim", color=color))
+    lines.append(_sty(bar, "cyan", color=color))
+    lines.append("  " + _sty("Advisory only - nothing was changed or blocked.", "dim", color=color))
     return lines
 
 

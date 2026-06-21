@@ -25,7 +25,7 @@ tokens stored anywhere.
    $ cd coop-sql-review        # the project folder
    $ git init -b main
    $ git add -A
-   $ git commit -m "Initial release: coop-sql-review v0.1.0"
+   $ git commit -m "Initial commit: coop-sql-review"   # tag the release separately (see Part B)
    $ gh repo create coop-sql-review --private --source=. --remote=origin --push
    ```
    (Use `--public` instead of `--private` if it should be open.)

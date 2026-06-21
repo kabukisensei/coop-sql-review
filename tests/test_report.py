@@ -53,6 +53,28 @@ def test_console_mentions_advisory_and_counts():
     assert "agent review" in lines
 
 
+def test_console_is_report_styled_and_plain_by_default():
+    text = "\n".join(console_lines(_result(), version="0.1.4", standards=STANDARDS))
+    assert "coop-sql-review" in text  # banner
+    assert "SQL standards report" in text
+    assert "===" in text  # banner / summary rules
+    assert "SUMMARY" in text
+    assert "Advisory only" in text
+    assert "\033[" not in text  # no ANSI unless color is requested
+
+
+def test_console_color_adds_ansi_only_when_requested():
+    assert "\033[" in "\n".join(console_lines(_result(), color=True))
+    assert "\033[" not in "\n".join(console_lines(_result(), color=False))
+
+
+def test_console_chrome_is_ascii_safe_even_colored():
+    # An empty result is pure chrome; it stays ASCII even colored (ANSI is ASCII).
+    assert "\n".join(console_lines(Result(files_checked=1))).isascii()
+    assert "\n".join(console_lines(Result(files_checked=1), color=True)).isascii()
+    assert "no issues found" in "\n".join(console_lines(Result(files_checked=1)))
+
+
 def test_html_is_self_contained_and_escapes():
     result = Result(
         findings=[Finding("R", "warning", "f.sql", 1, "o", "x < y & z > w", "§9")],

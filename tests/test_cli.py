@@ -20,6 +20,29 @@ def test_check_is_advisory_exit_zero():
     assert "Advisory only" in result.output
 
 
+def test_text_report_is_styled_and_plain_when_piped():
+    # CliRunner stdout is not a TTY -> auto mode stays plain (no ANSI).
+    out = CliRunner().invoke(cli, ["check", FIXTURE]).output
+    assert "\033[" not in out
+    assert "coop-sql-review" in out and "SUMMARY" in out  # the report banner + panel
+
+
+def test_text_report_color_flag_forces_ansi():
+    out = CliRunner().invoke(cli, ["check", FIXTURE, "--color"]).output
+    assert "\033[" in out  # explicit --color wins over the non-interactive default
+
+
+def test_use_color_decision(monkeypatch):
+    from coop_sql_review.cli import _use_color
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    assert _use_color(True, None) is True  # explicit --color
+    assert _use_color(False, None) is False  # explicit --no-color
+    assert _use_color(None, "out.txt") is False  # writing to a file -> never color
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert _use_color(None, None) is False  # NO_COLOR wins in auto mode
+
+
 def test_check_json_is_valid_contract():
     result = CliRunner().invoke(cli, ["check", FIXTURE, "--format", "json"])
     assert result.exit_code == 0
