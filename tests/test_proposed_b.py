@@ -181,3 +181,51 @@ SELECT c.id FROM silver.cust c JOIN silver.o o ON c.code = 5;
 """
     findings = run(IMPLICIT_RULE, sql)
     assert len(findings) == 1
+
+
+def test_implicit_convert_range_comparisons():
+    # Test range operators GT, GTE, LT, LTE, NEQ
+    sql = """\
+CREATE TABLE silver.cust (id INT, code VARCHAR(10));
+GO
+SELECT code FROM silver.cust WHERE code > 5;
+SELECT code FROM silver.cust WHERE code <= 5;
+SELECT id FROM silver.cust WHERE id <> '5';
+"""
+    findings = run(IMPLICIT_RULE, sql)
+    assert len(findings) == 3
+
+
+def test_implicit_convert_having_predicate():
+    # HAVING is a post-aggregation predicate — a mismatched comparison there
+    # forces the same implicit conversion as in WHERE.
+    sql = """\
+CREATE TABLE silver.cust (id INT, code VARCHAR(10));
+GO
+SELECT code FROM silver.cust GROUP BY code HAVING code > 5;
+"""
+    findings = run(IMPLICIT_RULE, sql)
+    assert len(findings) == 1
+
+
+def test_implicit_convert_merge_on_predicate():
+    # A MERGE ON match predicate is flagged; the WHEN-MATCHED SET assignment is not.
+    sql = """\
+CREATE TABLE silver.cust (id INT, code VARCHAR(10));
+GO
+MERGE silver.cust AS tgt USING silver.src AS s ON tgt.code = 5
+WHEN MATCHED THEN UPDATE SET tgt.id = 1;
+"""
+    findings = run(IMPLICIT_RULE, sql)
+    assert len(findings) == 1
+
+
+def test_implicit_convert_negative_date_range_sargable():
+    # §A's preferred SARGable pattern: a date column vs a string literal must
+    # NOT be flagged (date types are in neither the string nor numeric set).
+    sql = """\
+CREATE TABLE gold.fact (SalesDate DATE, amt INT);
+GO
+SELECT amt FROM gold.fact WHERE SalesDate >= '2026-01-01';
+"""
+    assert run(IMPLICIT_RULE, sql) == []
