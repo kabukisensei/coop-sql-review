@@ -5,6 +5,20 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [0.2.3] — 2026-06-22
+### Changed
+- **SQL-IMPLICIT-CONVERT (§C)** now flags every comparison operator (`=`, `<>`, `<`, `<=`, `>`,
+  `>=`), not just `=` — §C is about *comparing* mismatched types, so range and inequality
+  predicates are caught too. It also recognizes two more predicate contexts: a `HAVING` clause
+  and a `MERGE ... ON` match condition (`UPDATE SET` assignments — including a MERGE
+  `WHEN MATCHED ... SET` — stay excluded). Date/`datetime2` columns remain unflagged, so the §A
+  SARGable `col >= 'literal'` range pattern is not a false positive.
+### Fixed
+- **SQL-NO-SELECT-STAR (§11)**: an idiomatic `EXISTS(SELECT *)` predicate is no longer flagged
+  (the projection is discarded). Production `SELECT *` is still flagged everywhere it matters —
+  top level, in a `CREATE VIEW`, in `INSERT ... SELECT`, and inside a derived-table or scalar
+  subquery (§4's "Bad" pattern); only an intermediate CTE's own `SELECT *` is exempt.
+
 ## [0.2.2] — 2026-06-21
 ### Changed
 - **Internal de-duplication**: the tool-agnostic infrastructure (progress, diagnostics, the
@@ -55,6 +69,8 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.2.3]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.3
+[0.2.2]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.2
 [0.2.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.1
 [0.2.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.0
 [0.1.6]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.1.6
