@@ -44,6 +44,28 @@ def parse_batch(batch: str, dialect: str = "tsql") -> list[exp.Expression]:
     return [expression for expression in parsed if expression is not None]
 
 
+def ident_token_end(sql: str, i: int) -> int:
+    """Index just past a bracket-/quote-delimited identifier starting at ``sql[i]``.
+
+    T-SQL delimited identifiers are ``[ ... ]`` (with ``]]`` an escaped ``]``)
+    and ``" ... "`` (with ``""`` an escaped ``"``). A ``'``, ``--`` or ``/*``
+    *inside* such an identifier is part of the name, not the start of a string
+    or comment — e.g. ``[Customer's Name]`` or ``[a--b]`` — so any scanner that
+    masks strings/comments must skip the whole token first. Returns the index
+    just after the closing delimiter (or ``len(sql)`` if it is unterminated).
+    """
+    closer = "]" if sql[i] == "[" else sql[i]
+    j, n = i + 1, len(sql)
+    while j < n:
+        if sql[j] == closer:
+            if j + 1 < n and sql[j + 1] == closer:  # doubled = escaped delimiter
+                j += 2
+                continue
+            return j + 1
+        j += 1
+    return n
+
+
 def mask_noncode(sql: str) -> str:
     """Blank out comment bodies and string-literal contents, preserving every
     character position and newline.
@@ -71,16 +93,36 @@ def mask_noncode(sql: str) -> str:
                     break
                 out.append("\n" if sql[i] == "\n" else " ")
                 i += 1
+        elif ch == "[" or ch == '"':
+            # A delimited identifier is code, not a string/comment: copy it
+            # through verbatim so a `'`, `--` or `/*` inside the name (e.g.
+            # `[Customer's Name]`) never starts a spurious string/comment that
+            # would blank the rest of the file.
+            end = ident_token_end(sql, i)
+            out.append(sql[i:end])
+            i = end
         elif sql.startswith("--", i):
             while i < n and sql[i] != "\n":
                 out.append(" ")
                 i += 1
         elif sql.startswith("/*", i):
-            end = sql.find("*/", i)
-            end = n if end == -1 else end + 2
-            for k in range(i, end):
-                out.append("\n" if sql[k] == "\n" else " ")
-            i = end
+            # T-SQL block comments nest, so pair `/*`/`*/` by depth rather than
+            # stopping at the first `*/`.
+            depth = 0
+            while i < n:
+                if sql.startswith("/*", i):
+                    depth += 1
+                    out.append("  ")
+                    i += 2
+                elif sql.startswith("*/", i):
+                    depth -= 1
+                    out.append("  ")
+                    i += 2
+                    if depth == 0:
+                        break
+                else:
+                    out.append("\n" if sql[i] == "\n" else " ")
+                    i += 1
         else:
             out.append(ch)
             i += 1

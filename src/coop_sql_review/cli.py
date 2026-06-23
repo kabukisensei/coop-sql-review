@@ -62,18 +62,20 @@ def discover_sql_files(paths: tuple[str, ...]) -> list[Path]:
     hidden directories. Defaults to the current directory when none given.
     """
     roots = [Path(p) for p in paths] or [Path(".")]
-    found: set[Path] = set()
+    found: dict[Path, Path] = {}  # resolved path -> original, so a file reached
+    # via two overlapping roots (e.g. `.` and `./sub`) is only counted once.
     for root in roots:
         if root.is_file():
-            found.add(root)
+            found.setdefault(root.resolve(), root)
         elif root.is_dir():
-            for candidate in root.rglob("*.sql"):
+            # Case-insensitive on the extension so `.SQL`/`.Sql` are not skipped.
+            for candidate in root.rglob("*.[sS][qQ][lL]"):
                 rel = candidate.relative_to(root)
                 if any(part.startswith(".") for part in rel.parts):
                     continue
                 if candidate.is_file():
-                    found.add(candidate)
-    return sorted(found, key=lambda p: _display_path(p))
+                    found.setdefault(candidate.resolve(), candidate)
+    return sorted(found.values(), key=lambda p: _display_path(p))
 
 
 def _parse_files(files: list[Path], dialect: str, on_file=None) -> tuple[list[ParsedFile], list[Diagnostic]]:

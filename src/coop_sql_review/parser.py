@@ -16,6 +16,7 @@ from sqlglot import exp
 from coop_sql_review.diagnostics import PARSE_DEGRADED, PARSE_FAILED, Diagnostic
 from coop_sql_review.identifiers import original_name
 from coop_sql_review.sql_common import (
+    ident_token_end,
     is_temp_table,
     line_starts,
     mask_noncode,
@@ -30,8 +31,9 @@ from coop_sql_review.sql_model import Batch, ColumnDef, Comment, ParsedFile, Sql
 def extract_comments(text: str) -> list[Comment]:
     """All ``--`` and ``/* */`` comments with 1-based line spans.
 
-    String literals are respected, so a ``--`` inside a string is not a
-    comment. Lines are counted as the scanner advances.
+    String literals and bracket-/quote-delimited identifiers are respected, so
+    a ``--`` inside a string or a name like ``[a--b]`` is not a comment. Block
+    comments nest (T-SQL semantics). Lines are counted as the scanner advances.
     """
     text = strip_bom(text)
     comments: list[Comment] = []
@@ -53,19 +55,33 @@ def extract_comments(text: str) -> list[Comment]:
                 if text[i] == "\n":
                     line += 1
                 i += 1
+        elif ch == "[" or ch == '"':
+            end = ident_token_end(text, i)
+            line += text.count("\n", i, end)
+            i = end
         elif text.startswith("--", i):
             end = text.find("\n", i)
             end = n if end == -1 else end
             comments.append(Comment(text[i:end], line, line, "line"))
             i = end
         elif text.startswith("/*", i):
-            end = text.find("*/", i)
-            end = n if end == -1 else end + 2
-            segment = text[i:end]
-            span = segment.count("\n")
-            comments.append(Comment(segment, line, line + span, "block"))
-            line += span
-            i = end
+            start = i
+            start_line = line
+            depth = 0
+            while i < n:
+                if text.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                elif text.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                    if depth == 0:
+                        break
+                else:
+                    if text[i] == "\n":
+                        line += 1
+                    i += 1
+            comments.append(Comment(text[start:i], start_line, line, "block"))
         else:
             i += 1
     return comments

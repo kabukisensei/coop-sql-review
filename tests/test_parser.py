@@ -76,6 +76,53 @@ def test_go_inside_comment_does_not_split():
     assert len(batches) == 2
 
 
+def test_mask_keeps_delimited_identifiers_intact():
+    # A `'`, `--` or `/*` inside a bracket-/quote-delimited identifier is part
+    # of the name, not the start of a string/comment, and must not blank the
+    # rest of the statement.
+    s = "SELECT [Customer's Name], COUNT(*) FROM dbo.t WHERE x = 1"
+    masked = mask_noncode(s)
+    assert len(masked) == len(s)
+    assert "FROM dbo.t WHERE x = 1" in masked
+
+    s2 = "SELECT [a--b] AS c FROM t"
+    assert "FROM t" in mask_noncode(s2)
+
+    s3 = 'SELECT "weird/*col" FROM t'
+    assert "FROM t" in mask_noncode(s3)
+
+
+def test_go_after_bracketed_apostrophe_still_splits():
+    # The apostrophe in `[O'Brien]` must not start a string that masks the GO.
+    sql = "CREATE TABLE [O'Brien] (id int)\nGO\nSELECT 1\n"
+    assert len(split_batches_with_lines(sql)) == 2
+
+
+def test_nested_block_comments_fully_masked():
+    # T-SQL block comments nest; the mask must pair `/*`/`*/` by depth, not stop
+    # at the first `*/`.
+    s = "SELECT 1 /* a /* b */ c */ , 2"
+    masked = mask_noncode(s)
+    assert len(masked) == len(s)
+    assert "a" not in masked and "b" not in masked and "c" not in masked
+    assert masked.startswith("SELECT 1")
+    assert masked.rstrip().endswith(", 2")
+
+
+def test_nested_block_comment_is_one_comment_with_correct_span():
+    comments = extract_comments("A\n/* outer /* inner */ still */\nSELECT 1\n")
+    blocks = [c for c in comments if c.kind == "block"]
+    assert len(blocks) == 1
+    assert (blocks[0].line_start, blocks[0].line_end) == (2, 2)
+
+
+def test_comment_after_dashed_identifier_is_still_found():
+    comments = extract_comments("SELECT [a--b] -- real comment\nFROM t\n")
+    lines = [c for c in comments if c.kind == "line"]
+    assert len(lines) == 1
+    assert "real comment" in lines[0].text
+
+
 def test_unparseable_text_is_tolerated():
     parsed = parse_sql("weird.sql", "CREATE TABLE t (a int);\nGO\nCURSOR nonsense ((( ;\n")
     assert any(o.name == "t" for o in parsed.objects)  # the good batch still parses
