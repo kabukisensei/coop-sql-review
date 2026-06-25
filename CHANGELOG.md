@@ -5,7 +5,7 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
-## [Unreleased]
+## [0.2.4] — 2026-06-25
 ### Fixed
 - **Column nullability was inverted under `sqlglot >= 26`** — `_columns_from_schema` read
   `not allow_null`, but sqlglot flipped the `NotNullColumnConstraint` shape at 26 (a `NOT NULL`
