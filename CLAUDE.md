@@ -29,7 +29,8 @@ User-facing usage docs live in `README.md` (written for readers with little term
 `check` (the main one), `rules` (list all rules), `help [command]`, `upgrade` / `update`
 (the only networked command), `--version`. `check` options: `--standards`,
 `--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`,
-`--open/--no-open`, `--min-severity`, `--dialect`, `--log-file`, `--strict` (opt-in CI gate →
+`--open/--no-open`, `--color/--no-color`, `--min-severity`, `--baseline`, `--write-baseline`,
+`--dialect`, `--log-file`, `--strict` (opt-in CI gate →
 exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
 `check` with no PATHS in an interactive terminal shows a questionary folder-picker
 (`cli._interactive_pick_paths`); non-TTY falls back to scanning `.`.

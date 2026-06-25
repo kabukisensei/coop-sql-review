@@ -45,7 +45,7 @@ coop-sql-review check [PATHS...] --standards <path> [--config <path>]
                       [--format text|json|markdown|html] [-o/--output <path>] [--open/--no-open]
                       [--color/--no-color] [--min-severity info|warning|error] [--dialect tsql]
                       [--log-file <path>] [--strict]
-coop-sql-review rules                  # list rules, enabled state, and which require the agent
+coop-sql-review rules [--format text|json]   # list rules, enabled state, and which require the agent
 coop-sql-review upgrade                # prints the command to update; never self-applies (alias: update)
 coop-sql-review --version
 ```

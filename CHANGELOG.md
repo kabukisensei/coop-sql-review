@@ -5,6 +5,21 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [Unreleased]
+### Fixed
+- **Column nullability was inverted under `sqlglot >= 26`** — `_columns_from_schema` read
+  `not allow_null`, but sqlglot flipped the `NotNullColumnConstraint` shape at 26 (a `NOT NULL`
+  column now carries no `allow_null` key; an explicit `NULL` column carries `allow_null=True`).
+  Nullability is now read directly as `bool(allow_null)`, with a regression test pinning
+  `NOT NULL`/`NULL`/bare/`PK` so a future sqlglot bump can't silently re-invert it. The `sqlglot`
+  dependency is now floored at `>=26,<31` (25.x has the inverted semantics).
+### Docs
+- `PUBLISHING.md` no longer says to bump `version` in `pyproject.toml` — the version is
+  single-sourced from `src/coop_sql_review/__init__.py` (hatchling dynamic version); a static
+  `version =` key breaks `python -m build`.
+- `CLAUDE.md` `check` options now list `--color/--no-color`, `--baseline`, `--write-baseline`.
+- `README.md`/`SPEC.md` note `rules --format json` (machine-readable rule inventory).
+
 ## [0.2.3] — 2026-06-22
 ### Changed
 - **SQL-IMPLICIT-CONVERT (§C)** now flags every comparison operator (`=`, `<>`, `<`, `<=`, `>`,

@@ -145,7 +145,7 @@ review.txt`.
 | Command | What it does |
 |---|---|
 | `coop-sql-review check [paths...]` | Check files/folders against the standards (the main command). |
-| `coop-sql-review rules` | List every rule it checks, with severity and tier. |
+| `coop-sql-review rules` | List every rule it checks, with severity and tier. Add `--format json` for a machine-readable inventory (id, title, severity, category, standard_ref, tier, kind, default_enabled). |
 | `coop-sql-review help` | Show help. `help check` shows help for one command. |
 | `coop-sql-review update` | Check for a newer version and print the command to upgrade (same as `upgrade`). |
 | `coop-sql-review upgrade` | Check for a newer version and print the command to upgrade. |

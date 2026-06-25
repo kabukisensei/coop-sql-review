@@ -40,6 +40,20 @@ def test_objects_and_column_types_with_lines():
     assert cols["CreatedDt"].line == 6
 
 
+def test_column_nullability_matches_declaration():
+    # Pin the NOT NULL / NULL sense so a future sqlglot bump can't silently
+    # re-invert it (the NotNullColumnConstraint.allow_null semantics flipped
+    # at sqlglot 26: NOT NULL -> no allow_null key; explicit NULL -> True).
+    sql = "CREATE TABLE dbo.t (a INT NOT NULL, b INT NULL, c INT, d INT PRIMARY KEY)\n"
+    parsed = parse_sql("nullability.sql", sql)
+    cols = {c.name: c for c in parsed.objects[0].columns}
+    assert cols["a"].nullable is False  # INT NOT NULL
+    assert cols["b"].nullable is True  # INT NULL
+    assert cols["c"].nullable is True  # bare INT defaults to nullable
+    assert cols["d"].nullable is False  # PRIMARY KEY is implicitly NOT NULL
+    assert "PK" in cols["d"].constraints
+
+
 def test_node_line_offsets_into_second_batch():
     parsed = parse_sql("dim.sql", SQL)
     from sqlglot import exp

@@ -113,7 +113,11 @@ def _columns_from_schema(
         for constraint in item.args.get("constraints") or []:
             kind_expr = getattr(constraint, "kind", None)
             if isinstance(kind_expr, exp.NotNullColumnConstraint):
-                nullable = not bool(kind_expr.args.get("allow_null"))
+                # sqlglot (>=26) flips the sense vs older releases: a NOT NULL
+                # column yields a NotNullColumnConstraint with NO `allow_null`
+                # key (-> None -> falsy), while an explicit NULL column yields
+                # `allow_null=True`. So `allow_null` *is* the nullability.
+                nullable = bool(kind_expr.args.get("allow_null"))
             elif isinstance(kind_expr, exp.PrimaryKeyColumnConstraint):
                 constraints.append("PK")
                 nullable = False

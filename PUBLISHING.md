@@ -64,9 +64,15 @@ permissions (`id-token: write`, `environment: pypi`) and uses the official PyPI 
 
 A release is triggered by pushing a **version tag** that starts with `v`.
 
-1. **Bump the version in BOTH places** (they must match) — this is the #1 release mistake to avoid:
-   - `pyproject.toml` → `version = "0.1.1"`
+1. **Bump the version in ONE place** — `src/coop_sql_review/__init__.py`:
    - `src/coop_sql_review/__init__.py` → `__version__ = "0.1.1"`
+
+   > **Do not add a `version =` key to `pyproject.toml`.** The version is
+   > single-sourced: `pyproject.toml` declares `dynamic = ["version"]` and
+   > `[tool.hatch.version] path = "src/coop_sql_review/__init__.py"`, so
+   > hatchling reads `__version__` automatically at build time. Adding a static
+   > `version =` key conflicts with the `dynamic` declaration and breaks
+   > `python -m build`.
 
    Use [semantic versioning](https://semver.org): bump the **last** number for fixes
    (`0.1.0 → 0.1.1`), the **middle** for new features (`0.1.0 → 0.2.0`), the **first** for
@@ -110,7 +116,7 @@ coop-sql-review update
 |---|---|
 | First push to GitHub | `gh repo create coop-sql-review --source=. --remote=origin --push` |
 | Build the wheel locally (to test) | `python -m build` |
-| Cut release `vX.Y.Z` | bump version in 2 files → commit → `git tag vX.Y.Z && git push origin vX.Y.Z` |
+| Cut release `vX.Y.Z` | bump version in `src/coop_sql_review/__init__.py` → commit → `git tag vX.Y.Z && git push origin vX.Y.Z` |
 | Check what published | https://pypi.org/project/coop-sql-review/ |
 
 Before any release, make sure `ruff check src tests`, `ruff format --check src tests`, and
