@@ -153,18 +153,19 @@ def _extract_object(create: exp.Create, batch: Batch, parsed: ParsedFile, dialec
             name=name,
             display_name=original_name(table.name),
             line=parsed.node_line(batch, table),
-            is_ctas=isinstance(create.expression, exp.Select),
+            is_ctas=isinstance(create.expression, exp.Query),
             is_temp=is_temp_table(table),
             columns=columns,
         )
-    if kind == "VIEW" and isinstance(target, exp.Table):
-        schema, name = table_parts(target)
+    view_table = target.this if isinstance(target, exp.Schema) else target
+    if kind == "VIEW" and isinstance(view_table, exp.Table):
+        schema, name = table_parts(view_table)
         return SqlObject(
             kind="view",
             schema=schema,
             name=name,
-            display_name=original_name(target.name),
-            line=parsed.node_line(batch, target),
+            display_name=original_name(view_table.name),
+            line=parsed.node_line(batch, view_table),
         )
     return None
 

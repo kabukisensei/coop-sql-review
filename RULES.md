@@ -53,7 +53,7 @@ doc's section letter (`§A`–`§F`), not a `standards.md` section.
 
 | Rule ID | § | What it flags | Sev | Method |
 |---|---|---|---|---|
-| `SQL-SARGABILITY` | A | function/CASE wrapping a column in a `WHERE`/`JOIN` predicate (defeats indexes/stats) | warning | AST |
+| `SQL-SARGABILITY` | A | function wrapping a column in a `WHERE`/`JOIN` predicate (defeats indexes/stats) | warning | AST |
 | `SQL-ORDER-BY-IN-VIEW` | E | `ORDER BY` in a view/CTE/subquery with no `TOP` (ignored at runtime); window/`WITHIN GROUP` order excluded | warning | AST |
 | `SQL-DISTINCT-SMELL` | F | `SELECT DISTINCT` (often masks a fan-out join); aggregate `DISTINCT` excluded | info | AST |
 | `SQL-TRY-CAST-BRONZE` | D | `CAST` of a column when a `bronze.*` table is a read source — prefer `TRY_CAST` | info | AST |

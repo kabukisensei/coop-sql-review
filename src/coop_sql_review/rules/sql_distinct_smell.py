@@ -26,8 +26,8 @@ def check(ctx: RuleContext) -> list[Finding]:
             continue
         findings.append(
             ctx.finding(
-                line=ctx.parsed.node_line(batch, distinct),
-                object=enclosing_object(distinct),
+                line=ctx.parsed.node_line(batch, select),
+                object=enclosing_object(select),
                 message=(
                     "SELECT DISTINCT can mask a fan-out join bug — verify it is necessary "
                     "rather than papering over duplicates (§F)."

@@ -5,6 +5,25 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [0.2.5] — 2026-06-29
+### Fixed
+- **CREATE VIEW with an explicit column list was silently skipped** — `_extract_object` did not
+  unwrap the `exp.Schema` target in the VIEW branch, so the view produced no `SqlObject` and every
+  view-keyed rule was a no-op for it. The target is now unwrapped.
+- **CTAS with a set-operation body wasn't recognized as a CTAS** — `is_ctas` only matched
+  `exp.Select`, so a `CREATE TABLE AS … UNION/EXCEPT/INTERSECT …` was excluded from
+  SQL-SILVER-PASCALCASE. It now matches `exp.Query` (Select and set operations).
+- **SQL-NO-ALTER-COLUMN missed bracketed table names with spaces** — `ALTER COLUMN` on
+  `dbo.[My Table]` is now detected (this is an `error`-severity rule guarding a hard Fabric DW
+  limitation).
+- **SELECT DISTINCT was reported at the batch start line** — the finding now anchors on the
+  `DISTINCT`'s actual line instead of falling back to the GO-batch start.
+- **Identifier helpers mis-split a bracketed name containing a literal dot** — `original_name()` /
+  `qualify()` no longer break `[a.b]` into `a`/`b` (display/label correctness).
+### Docs
+- RULES.md: SQL-SARGABILITY no longer claims it flags "function/CASE wrapping a column" — the rule
+  deliberately excludes `CASE` (CASE in a JOIN ON is handled by SQL-JOIN-FILTER §8).
+
 ## [0.2.4] — 2026-06-25
 ### Fixed
 - **Column nullability was inverted under `sqlglot >= 26`** — `_columns_from_schema` read
@@ -84,6 +103,8 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.2.5]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.5
+[0.2.4]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.4
 [0.2.3]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.3
 [0.2.2]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.2
 [0.2.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.1

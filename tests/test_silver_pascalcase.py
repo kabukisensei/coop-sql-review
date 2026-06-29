@@ -97,3 +97,24 @@ def test_nested_union_descends_to_leftmost_select():
     )
     assert len(findings) == 1
     assert "bad_one" in findings[0].message
+
+
+def test_view_with_explicit_column_list_flagged():
+    # REGRESSION: a CREATE VIEW with an explicit column list parses with
+    # create.this being an exp.Schema wrapping the Table (like CREATE TABLE).
+    # The parser must unwrap the Schema so the view object is registered and the
+    # rule can fire on its non-PascalCase output alias.
+    findings = run("CREATE VIEW silver.Foo (Col1, Col2) AS SELECT a AS bad_name, b FROM t")
+    assert len(findings) == 1
+    assert findings[0].object == "silver.foo"
+    assert "bad_name" in findings[0].message
+
+
+def test_ctas_with_union_body_flagged():
+    # REGRESSION: a CTAS whose defining query is a set operation parses with
+    # create.expression being an exp.Union, not exp.Select. is_ctas must still be
+    # True so the object enters targets and the leftmost-SELECT descent fires.
+    findings = run("CREATE TABLE gold.Summary AS SELECT a AS bad_name FROM x UNION ALL SELECT b FROM y;")
+    assert len(findings) == 1
+    assert findings[0].object == "gold.summary"
+    assert "bad_name" in findings[0].message

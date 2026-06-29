@@ -172,3 +172,12 @@ def test_distinct_smell_real_select_distinct_still_flagged():
     # REGRESSION: a genuine SELECT DISTINCT is still flagged exactly once.
     findings = _run(DISTINCT_RULE, "SELECT DISTINCT a FROM t")
     assert len(findings) == 1
+
+
+def test_distinct_smell_line_points_at_select_not_batch_start():
+    # REGRESSION: the empty exp.Distinct node has no line-bearing leaf, so
+    # anchoring on it falls back to the batch start line. Anchor on the SELECT
+    # (which has line-bearing leaves) so the line points at the DISTINCT itself.
+    findings = _run(DISTINCT_RULE, "\n\nSELECT DISTINCT a, b FROM t")
+    assert len(findings) == 1
+    assert findings[0].line == 3

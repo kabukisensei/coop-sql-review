@@ -21,7 +21,7 @@ from coop_sql_review.identifiers import qualify
 from coop_sql_review.rules.base import Rule, RuleContext
 
 _ALTER_COLUMN_RE = re.compile(
-    r"\bALTER\s+TABLE\s+([#@\w\[\].]+)\s+ALTER\s+COLUMN\b",
+    r"\bALTER\s+TABLE\s+((?:\[[^\]]*\]|[#@\w.])+)\s+ALTER\s+COLUMN\b",
     re.IGNORECASE,
 )
 

@@ -44,3 +44,20 @@ def test_unqualified_table_defaults_schema():
     findings = run("ALTER TABLE customer ALTER COLUMN name varchar(50);")
     assert len(findings) == 1
     assert findings[0].object == "dbo.customer"
+
+
+def test_bracketed_table_name_with_space_flagged():
+    # REGRESSION: a bracket-delimited T-SQL identifier may contain spaces
+    # (e.g. [My Table]). The table-name capture must allow spaces inside
+    # brackets, otherwise the pattern stops at the first space and never reaches
+    # the ALTER COLUMN, producing a false negative for this error-severity rule.
+    findings = run("ALTER TABLE dbo.[My Table] ALTER COLUMN c INT NOT NULL;")
+    assert len(findings) == 1
+    assert findings[0].object == "dbo.my table"
+
+
+def test_bracketed_schema_and_table_with_spaces_flagged():
+    # REGRESSION: spaces in both bracketed parts must still be captured.
+    findings = run("ALTER TABLE [my schema].[My Table] ALTER COLUMN c INT NOT NULL;")
+    assert len(findings) == 1
+    assert findings[0].object == "my schema.my table"
