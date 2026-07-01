@@ -5,6 +5,12 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [0.3.1] — 2026-07-01
+### Changed
+- **`check --help`** now documents the report-file flags (`--html`/`--md`) and `--save-ignores`
+  with worked examples and a short "Report output" / "Ignoring findings" walkthrough, so the flags
+  are discoverable from the terminal without reading the README.
+
 ## [0.3.0] — 2026-07-01
 ### Added
 - **`rules.yml` `ignore:` list** — a human-readable, fingerprint-matched suppression that lives in
@@ -122,6 +128,7 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.3.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.3.0
 [0.2.5]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.5
 [0.2.4]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.4
