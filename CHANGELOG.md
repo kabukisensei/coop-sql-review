@@ -5,6 +5,25 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [0.3.0] — 2026-07-01
+### Added
+- **`rules.yml` `ignore:` list** — a human-readable, fingerprint-matched suppression that lives in
+  the one writable config file (alongside the per-rule `enabled`/`severity`). Each entry needs a
+  `fingerprint` (from the JSON output) plus optional `rule`/`where`/`note`. Filtered before the
+  `--min-severity` floor, like the baseline; an entry that no longer matches any current finding
+  emits a stale diagnostic (`rules.yml ignore: N no longer match`) so the list can't quietly rot.
+- **`--save-ignores`** — after the report, an interactive checkbox (all unticked → opt-in) of this
+  run's findings; the ones you tick are appended to `rules.yml`'s ignore list (de-duped by
+  fingerprint, deterministic LF write) so they're silenced next run. Interactive-terminal only.
+- **`--html <file>` / `--md/--markdown <file>`** — write an *extra* HTML or Markdown report
+  alongside the main output; they compose with `--format` and never open a browser (scriptable
+  sinks for keeping an artifact while still reading the console report).
+- **`rules.yml` auto-discovery** — a `rules.yml` in the current directory is now picked up with no
+  `--config` flag (so save-an-ignore-then-re-run works out of the box).
+### Changed
+- Requires **`coop-review-core>=0.2.0`** (new `RuleConfig.ignored_fingerprints`, `add_ignores`,
+  and the `ignore_stale` diagnostic category).
+
 ## [0.2.5] — 2026-06-29
 ### Fixed
 - **CREATE VIEW with an explicit column list was silently skipped** — `_extract_object` did not
@@ -103,6 +122,7 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.3.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.3.0
 [0.2.5]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.5
 [0.2.4]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.4
 [0.2.3]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.3

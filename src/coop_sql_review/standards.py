@@ -14,6 +14,7 @@ from pathlib import Path
 from coop_review_core.config import (  # noqa: F401
     RuleConfig,
     StandardsError,
+    add_ignores,
     apply_config,
     default_config_path,
     standards_info,

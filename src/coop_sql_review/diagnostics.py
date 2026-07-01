@@ -10,6 +10,7 @@ from coop_review_core.diagnostics import (  # noqa: F401
     CONFIG_UNKNOWN_RULE,
     DIAGNOSTIC_SEVERITIES,
     FILE_UNREADABLE,
+    IGNORE_STALE,
     PARSE_DEGRADED,
     PARSE_FAILED,
     RULE_ERROR,

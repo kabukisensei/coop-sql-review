@@ -293,3 +293,85 @@ def test_rules_command_marks_off_by_default():
     for line in out.splitlines():
         if "SQL-HEADER-COMMENT" in line or "SQL-TABLE-LAYER-NAME" in line:
             assert "off by default" in line
+
+
+def test_html_and_md_extra_reports_compose_with_text(tmp_path):
+    # --html/--md are EXTRA sinks: the main text report still prints to the console,
+    # AND both files are written.
+    html = tmp_path / "r.html"
+    md = tmp_path / "r.md"
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--html", str(html), "--md", str(md)])
+    assert result.exit_code == 0
+    assert html.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
+    assert md.read_text(encoding="utf-8").startswith("# coop-sql-review report")
+    # the main text report still went to the screen
+    assert "SQL-NO-SELECT-STAR" in result.output
+
+
+def test_config_ignore_suppresses_finding(tmp_path):
+    payload = json.loads(CliRunner().invoke(cli, ["check", FIXTURE, "--format", "json"]).output)
+    fp = payload["findings"][0]["fingerprint"]
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text(f"ignore:\n  - fingerprint: {fp}\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)]).output
+    assert "SQL-NO-SELECT-STAR" not in out
+    assert "no issues found" in out
+
+
+def test_stale_ignore_entry_warns(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("ignore:\n  - fingerprint: deadbeefdead\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)]).output
+    assert "ignore:" in out and "no longer" in out
+
+
+def test_save_ignores_writes_then_silences(tmp_path, monkeypatch):
+    from coop_sql_review import cli as climod
+    from coop_sql_review.standards import RuleConfig
+
+    class _FakeCheckbox:
+        def __init__(self, *a, **k):
+            # capture the finding values offered as choices, so .ask() can return them all
+            self._values = [c for c in k.get("choices", [])]
+
+        def ask(self):  # simulate the user checking every offered finding
+            return self._values
+
+    import questionary
+
+    monkeypatch.setattr(questionary, "checkbox", lambda *a, **k: _FakeCheckbox(*a, **k))
+    monkeypatch.setattr(questionary, "Choice", lambda **k: k.get("value"))
+    monkeypatch.setattr(climod, "_stdio_interactive", lambda: True)
+
+    cfg = tmp_path / "rules.yml"
+    first = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg), "--save-ignores"])
+    assert first.exit_code == 0
+    assert cfg.is_file()
+    assert RuleConfig.load(cfg).ignored_fingerprints  # a fingerprint was recorded
+
+    out = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)]).output
+    assert "SQL-NO-SELECT-STAR" not in out  # now silenced on the re-run
+
+
+def test_save_ignores_no_terminal_writes_nothing(tmp_path, monkeypatch):
+    from coop_sql_review import cli as climod
+
+    monkeypatch.setattr(climod, "_stdio_interactive", lambda: False)
+    cfg = tmp_path / "rules.yml"
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg), "--save-ignores"])
+    assert result.exit_code == 0
+    assert "needs an interactive terminal" in result.output
+    assert not cfg.exists()  # nothing written off-TTY
+
+
+def test_cwd_rules_yml_is_auto_discovered(tmp_path, monkeypatch):
+    # A rules.yml in the working directory is picked up with no --config flag.
+    # Fingerprints embed the cwd-relative display path, so compute them from the
+    # SAME cwd we scan from — derive the fingerprint after chdir.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+    payload = json.loads(CliRunner().invoke(cli, ["check", "q.sql", "--format", "json"]).output)
+    fp = payload["findings"][0]["fingerprint"]
+    (tmp_path / "rules.yml").write_text(f"ignore:\n  - fingerprint: {fp}\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", "q.sql"]).output  # no --config
+    assert "SQL-NO-SELECT-STAR" not in out  # auto-discovered ignore silenced it

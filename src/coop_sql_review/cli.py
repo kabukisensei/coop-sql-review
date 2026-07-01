@@ -20,6 +20,7 @@ from coop_sql_review.diagnostics import (
     BASELINE_STALE,
     CONFIG_UNKNOWN_RULE,
     FILE_UNREADABLE,
+    IGNORE_STALE,
     Diagnostic,
 )
 from coop_sql_review.engine import run_rules
@@ -38,6 +39,7 @@ from coop_sql_review.suppressions import (
 from coop_sql_review.standards import (
     RuleConfig,
     StandardsError,
+    add_ignores,
     apply_config,
     default_config_path,
     resolve_standards_path,
@@ -126,6 +128,35 @@ def _use_color(color_flag: bool | None, output_path: str | None) -> bool:
         return False
 
 
+def _config_read_path(config_path: str | None, std_path: Path) -> Path:
+    """Where to READ rules.yml from: --config if given, else a rules.yml in the
+    current directory (so 'save an ignore, re-run, it is silenced' works with no
+    flags), else the conventional spot beside the standards file."""
+    if config_path:
+        return Path(config_path)
+    cwd_cfg = Path.cwd() / "rules.yml"
+    if cwd_cfg.is_file():
+        return cwd_cfg
+    return default_config_path(std_path)
+
+
+def _config_write_path(config_path: str | None) -> Path:
+    """Where to WRITE ignores: --config if given, else ./rules.yml (never the
+    bundled standards directory inside the installed package)."""
+    return Path(config_path) if config_path else Path.cwd() / "rules.yml"
+
+
+def _write_extra_report(path: str, content: str, label: str) -> None:
+    """Write an extra report file (in addition to the main output) and announce
+    its path on stderr. Never opens a browser — these are scriptable sinks."""
+    target = Path(path)
+    try:
+        target.write_text(content, encoding="utf-8", newline="\n")
+    except OSError as exc:
+        raise click.ClickException(f"could not write report to {path}: {exc}") from exc
+    click.echo(f"{label} report written to {target.resolve().as_posix()}", err=True)
+
+
 def _should_open_report(fmt: str, open_report: bool | None) -> bool:
     """Whether to open the just-written report in a browser.
 
@@ -191,6 +222,63 @@ def _interactive_pick_paths(root: Path) -> list[Path] | None:
     return list(selected)
 
 
+def _finding_ignore_label(f):
+    loc = f"{f.file}:{f.line}" if f.line else f.file
+    msg = f.message if len(f.message) <= 70 else f.message[:69] + "..."
+    return f"[{f.severity}] {f.rule_id}  {loc}  {msg}"
+
+
+def _finding_ignore_entry(f):
+    return {
+        "fingerprint": f.fingerprint(),
+        "rule": f.rule_id,
+        "where": (f"{f.file}:{f.line}" if f.line else f.file),
+    }
+
+
+def _pick_findings_to_ignore(findings):
+    """Checkbox of findings to ignore (all start UNchecked -> opt-in). Returns the
+    chosen findings, or [] if questionary is unavailable / nothing picked. Mirrors
+    the error-handling of the existing _interactive_pick_paths helper."""
+    try:
+        import questionary
+    except ImportError:
+        return []
+    choices = [questionary.Choice(title=_finding_ignore_label(f), value=f, checked=False) for f in findings]
+    try:
+        selected = questionary.checkbox(
+            "Findings to add to the ignore list (SPACE to toggle, ENTER to confirm):", choices=choices
+        ).ask()
+    except (OSError, EOFError):
+        return []
+    return list(selected or [])
+
+
+def _save_ignores_interactive(findings, config_path: str | None) -> None:
+    """Let the user pick findings from this run to append to rules.yml's ignore
+    list, so they are silenced on the next run. Interactive-terminal only."""
+    if not findings:
+        click.echo("Nothing to ignore: this run reported no findings.", err=True)
+        return
+    if not _stdio_interactive():
+        click.echo("--save-ignores needs an interactive terminal; nothing written.", err=True)
+        return
+    selected = _pick_findings_to_ignore(findings)
+    if not selected:
+        click.echo("No findings selected; the ignore list is unchanged.", err=True)
+        return
+    target = _config_write_path(config_path)
+    try:
+        added = add_ignores(target, [_finding_ignore_entry(f) for f in selected])
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(f"could not update the ignore list in {target}: {exc}") from exc
+    click.echo(
+        f"Added {added} finding(s) to the ignore list in {target.resolve().as_posix()}; "
+        "re-run to confirm they are silenced.",
+        err=True,
+    )
+
+
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="coop-sql-review")
 @click.pass_context
@@ -234,6 +322,21 @@ def cli(ctx: click.Context) -> None:
     help="Write the report to this file instead of the screen (easier to read for big runs).",
 )
 @click.option(
+    "--html",
+    "html_path",
+    type=click.Path(),
+    default=None,
+    help="Also write a self-contained HTML report to this path (composes with any --format).",
+)
+@click.option(
+    "--md",
+    "--markdown",
+    "md_path",
+    type=click.Path(),
+    default=None,
+    help="Also write a Markdown report to this path (composes with any --format).",
+)
+@click.option(
     "--open/--no-open",
     "open_report",
     default=None,
@@ -267,6 +370,13 @@ def cli(ctx: click.Context) -> None:
     default=None,
     help="Write the current findings to this baseline file (ratchet setup), then report as usual.",
 )
+@click.option(
+    "--save-ignores",
+    "save_ignores",
+    is_flag=True,
+    help="After the report, interactively pick findings to add to rules.yml's ignore list "
+    "(silenced next run).",
+)
 @click.option("--dialect", default="tsql", show_default=True, help="sqlglot dialect to parse with.")
 @click.option(
     "--log-file",
@@ -284,11 +394,14 @@ def check(
     config_path: str | None,
     fmt: str,
     output_path: str | None,
+    html_path: str | None,
+    md_path: str | None,
     open_report: bool | None,
     color_flag: bool | None,
     min_severity: str,
     baseline_path: str | None,
     write_baseline_path: str | None,
+    save_ignores: bool,
     dialect: str,
     log_file: str | None,
     strict: bool,
@@ -299,7 +412,7 @@ def check(
     except StandardsError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    cfg_path = Path(config_path) if config_path else default_config_path(std_path)
+    cfg_path = _config_read_path(config_path, std_path)
     config = RuleConfig.load(cfg_path)
     rules = apply_config(all_rules(), config)
     unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
@@ -348,6 +461,9 @@ def check(
     result.findings = [
         f for f in result.findings if not is_inline_suppressed(f.rule_id, f.line, inline.get(f.file, {}))
     ]
+    # The full set of fingerprints this run produced (pre-baseline, pre-ignore) so a
+    # stale ignore entry can be told from one another filter already consumed.
+    present_fingerprints = {f.fingerprint() for f in result.findings}
     if write_baseline_path:
         count = write_baseline(Path(write_baseline_path), [f.fingerprint() for f in result.findings])
         click.echo(f"Wrote baseline of {count} finding(s) to {write_baseline_path}", err=True)
@@ -365,6 +481,23 @@ def check(
                     line=0,
                     message=f"baseline: {stale} entr{'y' if stale == 1 else 'ies'} no longer match a "
                     "current finding; re-run --write-baseline to prune",
+                )
+            )
+    # rules.yml "ignore:" list — human-readable, fingerprint-matched suppressions
+    # (like the baseline, but living in the one writable config file). Filtered before
+    # the --min-severity floor, so an ignored finding is gone regardless of severity.
+    if config.ignored_fingerprints:
+        result.findings = [f for f in result.findings if f.fingerprint() not in config.ignored_fingerprints]
+        stale = len(config.ignored_fingerprints - present_fingerprints)
+        if stale:
+            result.diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    category=IGNORE_STALE,
+                    file=cfg_path.as_posix(),
+                    line=0,
+                    message=f"rules.yml ignore: {stale} entr{'y' if stale == 1 else 'ies'} no longer "
+                    "match a current finding",
                 )
             )
     result.diagnostics.sort(key=lambda d: d.sort_key())
@@ -397,12 +530,22 @@ def check(
     else:
         click.echo(rendered, nl=False, color=use_color)
 
+    if html_path:
+        _write_extra_report(html_path, to_html(result, version=__version__, standards=standards), "HTML")
+    if md_path:
+        _write_extra_report(
+            md_path, to_markdown(result, version=__version__, standards=standards) + "\n", "Markdown"
+        )
+
     if log_file:
         try:
             Path(log_file).write_text(log_text(result), encoding="utf-8", newline="\n")
             click.echo(f"Diagnostics log written to {log_file}", err=True)
         except OSError as exc:
             raise click.ClickException(f"could not write log file {log_file}: {exc}") from exc
+
+    if save_ignores:
+        _save_ignores_interactive(result.findings, config_path)
 
     if strict and result.findings:
         sys.exit(2)

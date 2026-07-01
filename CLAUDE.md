@@ -29,11 +29,18 @@ User-facing usage docs live in `README.md` (written for readers with little term
 `check` (the main one), `rules` (list all rules), `help [command]`, `upgrade` / `update`
 (the only networked command), `--version`. `check` options: `--standards`,
 `--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`,
-`--open/--no-open`, `--color/--no-color`, `--min-severity`, `--baseline`, `--write-baseline`,
+`--html <file>` / `--md/--markdown <file>` (extra report sinks — compose with `--format`, never
+open a browser; via `cli._write_extra_report`), `--open/--no-open`, `--color/--no-color`,
+`--min-severity`, `--baseline`, `--write-baseline`, `--save-ignores` (interactive; see below),
 `--dialect`, `--log-file`, `--strict` (opt-in CI gate →
 exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
 `check` with no PATHS in an interactive terminal shows a questionary folder-picker
 (`cli._interactive_pick_paths`); non-TTY falls back to scanning `.`.
+
+**Config discovery:** `cli._config_read_path` reads `rules.yml` from `--config` if given, else a
+`rules.yml` in the **current directory** (so save-an-ignore-then-re-run works with no flags), else
+the conventional spot beside the standards file. `cli._config_write_path` (used by `--save-ignores`)
+writes to `--config` if given, else `./rules.yml` — never the bundled standards dir in the package.
 
 **`upgrade`/`update` are advisory too — they never self-apply.** They query PyPI to report
 whether a newer release exists, then *print* the command to run (`upgrade.upgrade_command(plan)`,
@@ -118,6 +125,13 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
 - **`suppressions.py`** — inline `coop-sql-review:ignore <RULE>` comments (the finding's line or the
   line above; bare/`*` = all) and a fingerprint **baseline** (`--write-baseline` / `--baseline`) for
   ratcheting on a legacy estate. Both filter findings in `check` before the `--min-severity` floor.
+- **`rules.yml` `ignore:` list** — a third, human-readable suppression: fingerprint-matched entries
+  living in the writable `rules.yml` (`RuleConfig.ignored_fingerprints` from core). `check` filters
+  it right after the baseline block, before the `--min-severity` floor; an entry that matches no
+  current finding emits an `IGNORE_STALE` diagnostic. `--save-ignores` runs an interactive checkbox
+  (`cli._save_ignores_interactive` → `_pick_findings_to_ignore`, all unticked/opt-in; tool-specific
+  `_finding_ignore_label`/`_finding_ignore_entry` builders) and appends the picks via
+  `standards.add_ignores` (core's deterministic, LF, de-duped writer). Interactive-terminal only.
 
 ## Adding a rule
 

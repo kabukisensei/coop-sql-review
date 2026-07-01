@@ -42,6 +42,7 @@ def test_shim_reexports_still_resolve():
         CONFIG_UNKNOWN_RULE,
         DIAGNOSTIC_SEVERITIES,
         FILE_UNREADABLE,
+        IGNORE_STALE,
         PARSE_DEGRADED,
         PARSE_FAILED,
         RULE_ERROR,
@@ -52,6 +53,7 @@ def test_shim_reexports_still_resolve():
     from coop_sql_review.standards import (  # noqa: F401
         RuleConfig,
         StandardsError,
+        add_ignores,
         apply_config,
         default_config_path,
         resolve_standards_path,
