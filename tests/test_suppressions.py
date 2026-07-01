@@ -1,6 +1,6 @@
 """Inline ignore directives + the fingerprint baseline, and fingerprint stability."""
 
-from coop_sql_review.finding import Finding
+from coop_sql_review.finding import AgentReviewItem, Finding
 from coop_sql_review.suppressions import (
     is_inline_suppressed,
     load_baseline,
@@ -41,6 +41,26 @@ def test_fingerprint_is_line_independent_but_rule_sensitive():
     other = Finding("SQL-B", "warning", "f.sql", 10, "o", "msg", "§1")  # rule differs
     assert a.fingerprint() == moved.fingerprint()
     assert a.fingerprint() != other.fingerprint()
+
+
+def test_fingerprint_is_path_independent():
+    # The display path is cwd-relative (or absolute cross-drive), so hashing it
+    # would break baselines/ignores run from another folder or machine. Identity
+    # is (rule_id, object, message) — the file NEVER participates.
+    a = Finding("SQL-A", "warning", "proj/f.sql", 10, "o", "msg", "§1")
+    b = Finding("SQL-A", "warning", "f.sql", 10, "o", "msg", "§1")  # another cwd's view
+    c = Finding("SQL-A", "warning", "/abs/elsewhere/f.sql", 10, "o", "msg", "§1")
+    assert a.fingerprint() == b.fingerprint() == c.fingerprint()
+    # ...but the logical identity fields still discriminate.
+    assert a.fingerprint() != Finding("SQL-A", "warning", "proj/f.sql", 10, "o2", "msg", "§1").fingerprint()
+    assert a.fingerprint() != Finding("SQL-A", "warning", "proj/f.sql", 10, "o", "msg2", "§1").fingerprint()
+
+
+def test_agent_item_fingerprint_is_path_independent():
+    a = AgentReviewItem("SQL-X", "proj/m.sql", "gold.t", 5, "note", "§5")
+    b = AgentReviewItem("SQL-X", "m.sql", "gold.t", 5, "note", "§5")
+    assert a.fingerprint() == b.fingerprint()
+    assert a.fingerprint() != AgentReviewItem("SQL-X", "m.sql", "gold.u", 5, "note", "§5").fingerprint()
 
 
 def test_baseline_roundtrip_is_deduped_and_sorted(tmp_path):

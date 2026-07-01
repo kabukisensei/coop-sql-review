@@ -29,7 +29,8 @@ def test_json_contract_keys():
     assert payload["version"] == "0.1.0"
     assert payload["standards"] == {"path": "docs/standards.md", "sha256": "abc123"}
     assert payload["summary"] == {"error": 0, "warning": 2, "info": 0}
-    assert payload["schema_version"] == 1
+    # v2: fingerprints dropped the display path from their identity (cwd-independent).
+    assert payload["schema_version"] == 2
     assert set(payload["verdict"]) == {"clean", "highest_severity"}
     first = payload["findings"][0]
     assert set(first) == {

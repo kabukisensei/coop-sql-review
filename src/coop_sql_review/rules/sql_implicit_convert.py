@@ -1,16 +1,24 @@
 """SQL-IMPLICIT-CONVERT (§C): avoid implicit conversions in predicates.
 
-Comparing mismatched types forces a runtime conversion and kills SARGability
-(e.g. a ``varchar`` column compared to an ``int`` literal). This is only
-checkable when the column's type is *known* from a ``CREATE TABLE`` in the
-same file. Conservative + info-only: a comparison (``=``, ``<>``, ``<``,
-``<=``, ``>``, ``>=``) is flagged solely when the bare column's type is known
-AND clearly mismatched against the literal kind (string column vs numeric
-literal, or numeric column vs string literal) AND it sits in a *predicate*
-context — a ``WHERE`` or ``HAVING`` clause, or a JOIN / MERGE ``ON`` clause.
-Non-predicate comparisons — ``UPDATE ... SET col = lit`` assignments (including
-a MERGE's ``WHEN MATCHED ... SET``) and SELECT-list boolean expressions like
-``SELECT (col = lit)`` — are excluded.
+Comparing mismatched types forces a runtime conversion. Which side gets
+converted follows SQL Server data-type precedence, and the two directions are
+NOT equally harmful, so each gets its own message:
+
+- **string column vs numeric literal** (``code = 5``): numeric outranks
+  string, so the COLUMN is converted per row — index seeks are lost. Message:
+  hurts SARGability.
+- **numeric column vs string literal** (``qty = '5'``): the LITERAL is
+  converted once and the predicate stays fully SARGable. Message: harmless to
+  SARGability; match the literal type for clarity.
+
+This is only checkable when the column's type is *known* from a ``CREATE
+TABLE`` in the same file. Conservative + info-only: a comparison (``=``,
+``<>``, ``<``, ``<=``, ``>``, ``>=``) is flagged solely when the bare column's
+type is known AND clearly mismatched against the literal kind AND it sits in a
+*predicate* context — a ``WHERE`` or ``HAVING`` clause, or a JOIN / MERGE
+``ON`` clause. Non-predicate comparisons — ``UPDATE ... SET col = lit``
+assignments (including a MERGE's ``WHEN MATCHED ... SET``) and SELECT-list
+boolean expressions like ``SELECT (col = lit)`` — are excluded.
 
 Known limitation: column types are matched by *bare name* across the whole
 file, so a column name reused with different types in different tables can be
@@ -100,20 +108,31 @@ def check(ctx: RuleContext) -> list[Finding]:
         if base_type is None:
             continue
 
-        mismatch = (base_type in _STRING_TYPES and literal.is_number) or (
-            base_type in _NUMERIC_TYPES and literal.is_string
-        )
-        if not mismatch:
+        # Data-type precedence decides which side is converted: numeric outranks
+        # string, so a string COLUMN vs a numeric literal converts the column
+        # (per row — seeks lost), while a numeric column vs a string LITERAL
+        # converts the literal once (harmless to SARGability).
+        column_converted = base_type in _STRING_TYPES and literal.is_number
+        literal_converted = base_type in _NUMERIC_TYPES and literal.is_string
+        if not (column_converted or literal_converted):
             continue
 
+        if column_converted:
+            message = (
+                f"column {column.name} ({base_type}) compared to a mismatched literal "
+                "— implicit conversion hurts SARGability (§C)."
+            )
+        else:
+            message = (
+                f"column {column.name} ({base_type}) compared to a string literal — "
+                "implicit conversion of the literal is harmless to SARGability; "
+                "match the literal type for clarity (§C)."
+            )
         findings.append(
             ctx.finding(
                 line=ctx.parsed.node_line(batch, comp),
                 object=enclosing_object(comp),
-                message=(
-                    f"column {column.name} ({base_type}) compared to a mismatched literal "
-                    "— implicit conversion hurts SARGability (§C)."
-                ),
+                message=message,
             )
         )
     return findings

@@ -136,11 +136,15 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
   and a stable `fingerprint` per finding/agent-review item.
 - **`suppressions.py`** — inline `coop-sql-review:ignore <RULE>` comments (the finding's line or the
   line above; bare/`*` = all) and a fingerprint **baseline** (`--write-baseline` / `--baseline`) for
-  ratcheting on a legacy estate. Both filter findings in `check` before the `--min-severity` floor.
+  ratcheting on a legacy estate. Both filter findings **and `agent_review` items** in `check` before
+  the `--min-severity` floor (`--write-baseline` records agent fingerprints too). Fingerprints are
+  path-free — `(rule_id, object, message/note)`, no file, no line — so baselines/ignores survive a
+  cwd or machine change (schema_version 2; same identity rule as coop-dax-review).
 - **`rules.yml` `ignore:` list** — a third, human-readable suppression: fingerprint-matched entries
   living in the writable `rules.yml` (`RuleConfig.ignored_fingerprints` from core). `check` filters
-  it right after the baseline block, before the `--min-severity` floor; an entry that matches no
-  current finding emits an `IGNORE_STALE` diagnostic. `--save-ignores` runs an interactive checkbox
+  findings and `agent_review` items right after the baseline block, before the `--min-severity`
+  floor; an entry that matches no current finding **or agent-review item** emits an `IGNORE_STALE`
+  diagnostic. `--save-ignores` runs an interactive checkbox
   (`cli._save_ignores_interactive` → `_pick_findings_to_ignore`, all unticked/opt-in; tool-specific
   `_finding_ignore_label`/`_finding_ignore_entry` builders) and appends the picks via
   `standards.add_ignores` (core's deterministic, LF, de-duped writer). Interactive-terminal only.

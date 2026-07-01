@@ -31,7 +31,7 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 | `SQL-EXISTS-COMMENT` | 7 | `EXISTS`/`NOT EXISTS` with no preceding comment | warning | AST+text | 2 |
 | `SQL-HEADER-COMMENT` | 10 | file missing header block (File/Purpose/Source/Author/Date) | info | text | 2 |
 | `SQL-SILVER-PASCALCASE` | 1 | silver/gold output alias not PascalCase | info | AST | 3 |
-| `SQL-DATE-FILTER-PARAM` | 11 | date literal in `WHERE` (prefer a parameter) | info | AST | 3 |
+| `SQL-DATE-FILTER-PARAM` | 11 | date/datetime literal in `WHERE` — ISO `'YYYY-MM-DD'` (optional time suffix) or compact `'YYYYMMDD'` (prefer a parameter) | info | AST | 3 |
 | `SQL-QUERY-LABEL` | 9 | ETL `INSERT` without `OPTION(LABEL=...)` | info | AST/text | 3 |
 | `SQL-CTAS-EXPLICIT-CAST` | 9 | CTAS with un-`CAST` aggregate outputs | info | AST | 3 |
 
@@ -53,11 +53,11 @@ doc's section letter (`§A`–`§F`), not a `standards.md` section.
 
 | Rule ID | § | What it flags | Sev | Method |
 |---|---|---|---|---|
-| `SQL-SARGABILITY` | A | function wrapping a column in a `WHERE`/`JOIN` predicate (defeats indexes/stats) | warning | AST |
+| `SQL-SARGABILITY` | A | function or arithmetic (`col + x`) wrapping a column in a `WHERE`/`JOIN` predicate (`= <> > >= < <=`, `IN`, `BETWEEN`) — defeats indexes/stats | warning | AST |
 | `SQL-ORDER-BY-IN-VIEW` | E | `ORDER BY` in a view/CTE/subquery with no `TOP` (ignored at runtime); window/`WITHIN GROUP` order excluded | warning | AST |
 | `SQL-DISTINCT-SMELL` | F | `SELECT DISTINCT` (often masks a fan-out join); aggregate `DISTINCT` excluded | info | AST |
 | `SQL-TRY-CAST-BRONZE` | D | `CAST` of a column when a `bronze.*` table is a read source — prefer `TRY_CAST` | info | AST |
-| `SQL-IMPLICIT-CONVERT` | C | predicate comparing a column to a mismatched-type literal (type known from an in-file `CREATE`) | info | AST |
+| `SQL-IMPLICIT-CONVERT` | C | predicate comparing a column to a mismatched-type literal (type known from an in-file `CREATE`); direction-aware message — converting the COLUMN hurts SARGability, converting the LITERAL is a clarity nit | info | AST |
 
 Proposed items **§B** (maintain statistics), **§G** (`COPY INTO` for bulk ingestion), and **§H**
 (scalar UDFs in hot paths) are deferred — they need runtime/catalog context or are agent-judgment,

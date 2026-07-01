@@ -60,3 +60,47 @@ def test_subquery_date_literal_reported_once():
 
 def test_parameter_predicate_not_flagged():
     assert run("SELECT 1 FROM t WHERE d = @p") == []
+
+
+def test_datetime_literal_with_space_flagged():
+    # A midnight time suffix is the most common way a hard-coded date actually appears.
+    findings = run("SELECT 1 FROM Sales WHERE SalesDate >= '2026-01-01 00:00:00'")
+    assert len(findings) == 1
+    assert findings[0].rule_id == "SQL-DATE-FILTER-PARAM"
+
+
+def test_datetime_literal_with_t_separator_flagged():
+    findings = run("SELECT 1 FROM Sales WHERE SalesDate >= '2026-01-01T00:00:00'")
+    assert len(findings) == 1
+
+
+def test_datetime_literal_with_fractional_seconds_flagged():
+    findings = run("SELECT 1 FROM Sales WHERE SalesDate < '2026-01-01 23:59:59.997'")
+    assert len(findings) == 1
+
+
+def test_datetime_literal_hours_minutes_only_flagged():
+    findings = run("SELECT 1 FROM Sales WHERE SalesDate >= '2026-01-01 08:30'")
+    assert len(findings) == 1
+
+
+def test_compact_yyyymmdd_literal_flagged():
+    # SQL Server's classic unambiguous form.
+    findings = run("SELECT 1 FROM Sales WHERE SalesDate >= '20260101'")
+    assert len(findings) == 1
+
+
+def test_non_date_eight_digit_code_not_flagged():
+    # '00001234' has no valid month/day ('34' fails the day class) — an account
+    # number or zero-padded id must never be mistaken for a compact date.
+    assert run("SELECT 1 FROM t WHERE AccountNo = '00001234'") == []
+
+
+def test_parameterized_datetime_not_flagged():
+    # Parameters parse as exp.Parameter, not exp.Literal — never flagged.
+    assert run("SELECT 1 FROM Sales WHERE SalesDate >= @From") == []
+
+
+def test_free_text_containing_datetime_not_flagged():
+    # fullmatch anchoring: trailing prose disqualifies the whole literal.
+    assert run("SELECT 1 FROM t WHERE Comment = '2026-01-01 08:30 customer called'") == []

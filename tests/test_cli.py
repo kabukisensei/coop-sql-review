@@ -122,12 +122,26 @@ def test_baseline_lets_new_findings_through(tmp_path):
     a.write_text("SELECT * FROM t;\n", encoding="utf-8")
     bl = tmp_path / "bl.json"
     CliRunner().invoke(cli, ["check", str(a), "--write-baseline", str(bl)])
-    # a NEW finding in a different file is keyed differently -> it surfaces
+    # a NEW logical issue (different object -> different fingerprint) surfaces
     b = tmp_path / "b.sql"
-    b.write_text("SELECT * FROM u;\n", encoding="utf-8")
+    b.write_text("CREATE VIEW gold.v AS SELECT * FROM u;\n", encoding="utf-8")
     out = CliRunner().invoke(cli, ["check", str(tmp_path), "--baseline", str(bl)]).output
     assert "SQL-NO-SELECT-STAR" in out  # b.sql's finding is new
     assert "b.sql" in out
+
+
+def test_baseline_suppresses_same_logical_issue_in_another_file(tmp_path):
+    # Fingerprints are path-free: the SAME rule+object+message in a second file
+    # IS the same logical issue, and the baseline suppresses both (by design).
+    a = tmp_path / "a.sql"
+    a.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    CliRunner().invoke(cli, ["check", str(a), "--write-baseline", str(bl)])
+    b = tmp_path / "b.sql"
+    b.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", str(tmp_path), "--baseline", str(bl)]).output
+    assert "SQL-NO-SELECT-STAR" not in out
+    assert "no issues" in out
 
 
 def test_stale_baseline_entry_warns(tmp_path):
@@ -370,8 +384,6 @@ def test_save_ignores_no_terminal_writes_nothing(tmp_path, monkeypatch):
 
 def test_cwd_rules_yml_is_auto_discovered(tmp_path, monkeypatch):
     # A rules.yml in the working directory is picked up with no --config flag.
-    # Fingerprints embed the cwd-relative display path, so compute them from the
-    # SAME cwd we scan from — derive the fingerprint after chdir.
     monkeypatch.chdir(tmp_path)
     (tmp_path / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
     payload = json.loads(CliRunner().invoke(cli, ["check", "q.sql", "--format", "json"]).output)
@@ -592,3 +604,83 @@ def test_discover_order_is_deterministic(tmp_path):
         (tmp_path / name).write_text("SELECT 1;\n", encoding="utf-8")
     found = discover_sql_files((str(tmp_path),))
     assert [p.name for p in found] == ["a.sql", "b.sql", "c.sql"]
+
+
+# --- fingerprints are cwd-independent: baselines and rules.yml ignores keep
+#     matching when the tool runs from a different folder (or machine) ---
+
+
+def test_fingerprint_identical_across_cwds(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+    monkeypatch.chdir(proj)  # display path: q.sql
+    inside = json.loads(CliRunner().invoke(cli, ["check", ".", "--format", "json"]).output)
+    monkeypatch.chdir(tmp_path)  # display path: proj/q.sql
+    outside = json.loads(CliRunner().invoke(cli, ["check", "proj", "--format", "json"]).output)
+    assert inside["findings"][0]["file"] != outside["findings"][0]["file"]  # paths DID differ
+    assert inside["findings"][0]["fingerprint"] == outside["findings"][0]["fingerprint"]
+
+
+def test_baseline_written_from_one_cwd_suppresses_from_another(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    monkeypatch.chdir(proj)
+    CliRunner().invoke(cli, ["check", ".", "--write-baseline", str(bl)])
+    monkeypatch.chdir(tmp_path)  # a scheduled task / CI step with another working dir
+    payload = json.loads(
+        CliRunner().invoke(cli, ["check", "proj", "--baseline", str(bl), "--format", "json"]).output
+    )
+    assert payload["findings"] == []
+    assert not any(d["category"] == "baseline_stale" for d in payload["diagnostics"])
+
+
+# --- the suppression pipeline covers agent_review items exactly like findings ---
+
+_MERGE_SQL = "MERGE silver.t AS x USING silver.s AS s ON x.id = s.id\nWHEN MATCHED THEN UPDATE SET x.a = 1;\n"
+
+
+def test_inline_ignore_suppresses_agent_review_item(tmp_path):
+    f = tmp_path / "m.sql"
+    f.write_text("-- coop-sql-review:ignore SQL-UPSERT-CHOICE\n" + _MERGE_SQL, encoding="utf-8")
+    payload = json.loads(CliRunner().invoke(cli, ["check", str(f), "--format", "json"]).output)
+    assert all(a["rule_id"] != "SQL-UPSERT-CHOICE" for a in payload["agent_review"])
+
+
+def test_inline_ignore_other_rule_keeps_agent_review_item(tmp_path):
+    # Guard: the directive is rule-targeted, not a blanket agent-review mute.
+    f = tmp_path / "m.sql"
+    f.write_text("-- coop-sql-review:ignore SQL-NO-SELECT-STAR\n" + _MERGE_SQL, encoding="utf-8")
+    payload = json.loads(CliRunner().invoke(cli, ["check", str(f), "--format", "json"]).output)
+    assert any(a["rule_id"] == "SQL-UPSERT-CHOICE" for a in payload["agent_review"])
+
+
+def test_baseline_suppresses_agent_review_item(tmp_path):
+    f = tmp_path / "m.sql"
+    f.write_text(_MERGE_SQL, encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    CliRunner().invoke(cli, ["check", str(f), "--write-baseline", str(bl)])
+    payload = json.loads(
+        CliRunner().invoke(cli, ["check", str(f), "--baseline", str(bl), "--format", "json"]).output
+    )
+    assert payload["agent_review"] == []
+    # A baseline entry matching only an agent item is NOT stale.
+    assert not any(d["category"] == "baseline_stale" for d in payload["diagnostics"])
+
+
+def test_config_ignore_suppresses_agent_review_item_and_is_not_stale(tmp_path):
+    f = tmp_path / "m.sql"
+    f.write_text(_MERGE_SQL, encoding="utf-8")
+    payload = json.loads(CliRunner().invoke(cli, ["check", str(f), "--format", "json"]).output)
+    fps = [a["fingerprint"] for a in payload["agent_review"] if a["rule_id"] == "SQL-UPSERT-CHOICE"]
+    assert fps  # the MERGE was detected before suppression
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text(f"ignore:\n  - fingerprint: {fps[0]}\n", encoding="utf-8")
+    payload2 = json.loads(
+        CliRunner().invoke(cli, ["check", str(f), "--config", str(cfg), "--format", "json"]).output
+    )
+    assert all(a["rule_id"] != "SQL-UPSERT-CHOICE" for a in payload2["agent_review"])
+    # ignore_stale semantics: an ignore matching only an agent item is NOT stale.
+    assert not any(d["category"] == "ignore_stale" for d in payload2["diagnostics"])

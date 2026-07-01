@@ -22,7 +22,10 @@ and filter keys. Hard to verify statically → `agent_review`. *Source: Fabric D
 ## C. Avoid implicit conversions in predicates (Checkable-ish, info)
 Comparing mismatched types forces conversions and kills SARGability (e.g. `varchar` column vs
 `int` literal). Rule idea: `SQL-IMPLICIT-CONVERT` where column type is known from a CREATE in
-scope.
+scope. Direction matters (SQL Server data-type precedence): a *string column vs numeric literal*
+converts the **column** per row and kills seeks; the reverse (*numeric column vs string literal*)
+converts only the **literal** once and stays SARGable — flagged only as a clarity nit (match the
+literal type), never as a performance problem.
 
 ## D. Prefer `TRY_CONVERT` / `TRY_CAST` when parsing external/bronze text (Checkable, info)
 Raw bronze values fail hard with `CAST`; `TRY_CAST` yields NULL instead of aborting the load.

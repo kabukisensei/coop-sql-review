@@ -473,14 +473,16 @@ def cli(ctx: click.Context) -> None:
     "baseline_path",
     type=click.Path(),
     default=None,
-    help="Suppress findings already recorded in this baseline file (only new ones surface).",
+    help="Suppress findings and agent-review items already recorded in this baseline file "
+    "(only new ones surface).",
 )
 @click.option(
     "--write-baseline",
     "write_baseline_path",
     type=click.Path(),
     default=None,
-    help="Write the current findings to this baseline file (ratchet setup), then report as usual.",
+    help="Write the current findings and agent-review items to this baseline file "
+    "(ratchet setup), then report as usual.",
 )
 @click.option(
     "--save-ignores",
@@ -555,6 +557,8 @@ def check(
       automatically when rules.yml sits in the current directory (or pass
       --config FILE). You can also disable a whole rule in rules.yml, or drop an
       inline `-- coop-sql-review:ignore RULE-ID` comment on the finding's line.
+      All three suppressions (inline, baseline, ignore list) silence
+      agent-review items the same way they silence findings.
     """
     try:
         std_path = resolve_standards_path(standards_path)
@@ -626,25 +630,37 @@ def check(
 
     # Suppressions: inline `coop-sql-review:ignore` directives (always), then a
     # fingerprint baseline (opt-in). Both run before the --min-severity floor so a
-    # suppressed finding is gone regardless of severity.
+    # suppressed finding is gone regardless of severity. Agent-review items get the
+    # same full pipeline as findings — an accepted MERGE shouldn't be re-raised to
+    # the analytics agent on every run.
     inline = {pf.path: scan_directives(pf.text) for pf in parsed}
     result.findings = [
         f for f in result.findings if not is_inline_suppressed(f.rule_id, f.line, inline.get(f.file, {}))
     ]
+    result.agent_review = [
+        a for a in result.agent_review if not is_inline_suppressed(a.rule_id, a.line, inline.get(a.file, {}))
+    ]
     # The full set of fingerprints this run produced (pre-baseline, pre-ignore) so a
-    # stale ignore entry can be told from one another filter already consumed.
-    present_fingerprints = {f.fingerprint() for f in result.findings}
+    # stale ignore entry can be told from one another filter already consumed. An
+    # entry matching only an agent-review item is NOT stale.
+    present_fingerprints = {f.fingerprint() for f in result.findings} | {
+        a.fingerprint() for a in result.agent_review
+    }
     if write_baseline_path:
         try:
-            count = write_baseline(Path(write_baseline_path), [f.fingerprint() for f in result.findings])
+            count = write_baseline(Path(write_baseline_path), sorted(present_fingerprints))
         except OSError as exc:
             raise click.ClickException(f"could not write baseline to {write_baseline_path}: {exc}") from exc
-        click.echo(f"Wrote baseline of {count} finding(s) to {write_baseline_path}", err=True)
+        click.echo(
+            f"Wrote baseline of {count} finding/agent-review entr{'y' if count == 1 else 'ies'} "
+            f"to {write_baseline_path}",
+            err=True,
+        )
     elif baseline_path:
         baseline_fps = load_baseline(Path(baseline_path))
-        seen = {f.fingerprint() for f in result.findings}
         result.findings = [f for f in result.findings if f.fingerprint() not in baseline_fps]
-        stale = len(baseline_fps - seen)
+        result.agent_review = [a for a in result.agent_review if a.fingerprint() not in baseline_fps]
+        stale = len(baseline_fps - present_fingerprints)
         if stale:
             result.diagnostics.append(
                 Diagnostic(
@@ -661,6 +677,9 @@ def check(
     # the --min-severity floor, so an ignored finding is gone regardless of severity.
     if config.ignored_fingerprints:
         result.findings = [f for f in result.findings if f.fingerprint() not in config.ignored_fingerprints]
+        result.agent_review = [
+            a for a in result.agent_review if a.fingerprint() not in config.ignored_fingerprints
+        ]
         stale = len(config.ignored_fingerprints - present_fingerprints)
         if stale:
             result.diagnostics.append(

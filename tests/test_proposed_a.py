@@ -77,6 +77,60 @@ def test_sargability_function_on_column_still_flagged():
     assert len(findings) == 1
 
 
+def test_sargability_flags_function_in_in_membership():
+    # POSITIVE (§A): func(col) IN (...) is as non-SARGable as func(col) = x.
+    findings = _run(SARG_RULE, "SELECT a FROM t WHERE YEAR(d) IN (2024, 2025)")
+    assert len(findings) == 1
+    assert findings[0].rule_id == "SQL-SARGABILITY"
+
+
+def test_sargability_flags_function_in_between():
+    # POSITIVE (§A): func(col) BETWEEN a AND b wraps the column too.
+    findings = _run(SARG_RULE, "SELECT a FROM t WHERE YEAR(d) BETWEEN 2024 AND 2025")
+    assert len(findings) == 1
+
+
+def test_sargability_flags_function_with_neq():
+    # POSITIVE (§A): <> is a comparison like any other.
+    findings = _run(SARG_RULE, "SELECT a FROM t WHERE YEAR(d) <> 2024")
+    assert len(findings) == 1
+
+
+def test_sargability_flags_arithmetic_on_column_side():
+    # POSITIVE (§A names `col + x` verbatim): arithmetic wrapping the filtered column.
+    add = _run(SARG_RULE, "SELECT a FROM t WHERE qty + 1 > 100")
+    mul = _run(SARG_RULE, "SELECT a FROM t WHERE amount * 1.1 >= 50")
+    assert len(add) == 1
+    assert len(mul) == 1
+
+
+def test_sargability_bare_column_in_membership_not_flagged():
+    # NEGATIVE: a bare column tested for membership is SARGable.
+    assert _run(SARG_RULE, "SELECT a FROM t WHERE region IN ('US', 'CA')") == []
+
+
+def test_sargability_bare_column_in_subquery_not_flagged():
+    # NEGATIVE: col IN (SELECT ...) keeps the filtered column bare; only the
+    # membership's `this` side matters, never the subquery's own projection.
+    assert _run(SARG_RULE, "SELECT a FROM t WHERE id IN (SELECT id FROM u)") == []
+
+
+def test_sargability_bare_column_between_not_flagged():
+    # NEGATIVE: a bare column ranged with BETWEEN is the §A "Prefer" pattern.
+    assert _run(SARG_RULE, "SELECT a FROM t WHERE d BETWEEN @lo AND @hi") == []
+
+
+def test_sargability_value_side_arithmetic_not_flagged():
+    # NEGATIVE: the computation sits on the VALUE side; the filtered column (x)
+    # stays bare, so the predicate is still SARGable on x.
+    assert _run(SARG_RULE, "SELECT a FROM t WHERE x > qty + 1") == []
+
+
+def test_sargability_literal_arithmetic_not_flagged():
+    # NEGATIVE: arithmetic over literals wraps no column at all.
+    assert _run(SARG_RULE, "SELECT a FROM t WHERE x > 100 + 1") == []
+
+
 # -- SQL-ORDER-BY-IN-VIEW (§E) ----------------------------------------------
 
 

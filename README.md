@@ -170,8 +170,8 @@ coop-sql-review check sql-folder --html review.html --md review.md
 | `--open` / `--no-open` | Whether to open an HTML report in your browser when it's written. Default: opens automatically when you're in a terminal; `--no-open` to skip. |
 | `--color` / `--no-color` | Force colored or plain text output. Default: auto — colored at a terminal, plain when piped or redirected (also honors `NO_COLOR`). |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
-| `--baseline <file>` | Hide findings already recorded in this baseline file — only **new** findings appear (see §9). |
-| `--write-baseline <file>` | Record the current findings to this baseline file (then report as usual). |
+| `--baseline <file>` | Hide findings **and agent-review items** already recorded in this baseline file — only **new** ones appear (see §9). |
+| `--write-baseline <file>` | Record the current findings and agent-review items to this baseline file (then report as usual). |
 | `--save-ignores` | After the report, interactively tick findings to add to your `rules.yml` ignore list, so they're silenced next run (see §9). |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
 | `--config <rules.yml>` | Turn rules on/off, change their severity, or list ignored findings (see §7). A `rules.yml` in the current folder is picked up automatically, so `--config` is optional. (A `--config` path that doesn't exist is an error, so a typo can't silently drop your overrides.) |
@@ -259,7 +259,9 @@ upgrade command.)
 ## 9. Adopting on an existing code base (suppressions)
 
 Three deterministic, never-blocking ways to silence findings you've already triaged, so a legacy
-estate doesn't make every run noisy:
+estate doesn't make every run noisy. All three also cover **agent-review items** (constructs
+flagged for the analytics agent, like a `MERGE` detected by `SQL-UPSERT-CHOICE`) — an accepted
+construct isn't re-raised on every run:
 
 - **Inline** — a comment on a finding's line (or the line directly above it):
   ```sql
@@ -268,14 +270,16 @@ estate doesn't make every run noisy:
   ```
   List several rule ids (`ignore SQL-A, SQL-B`), or a bare `ignore` / `*` to silence every rule on
   that line. The `reason:` text is for humans; the parser ignores it.
-- **Baseline (ratchet)** — record today's findings, then surface only *new* ones:
+- **Baseline (ratchet)** — record today's findings and agent-review items, then surface only *new* ones:
   ```sh
   coop-sql-review check sql-folder --write-baseline sql-baseline.json   # once, to capture the status quo
   coop-sql-review check sql-folder --baseline sql-baseline.json         # thereafter: only new findings appear
   ```
-  The baseline keys on each finding's stable, line-independent `fingerprint` (also in the JSON), so
-  edits above a statement don't disturb it. A baseline entry that no longer matches anything (you
-  fixed it) is reported as a diagnostic; re-run `--write-baseline` to prune.
+  The baseline keys on each finding's stable `fingerprint` (also in the JSON), which is independent
+  of line numbers **and file paths** — edits above a statement don't disturb it, and neither does
+  running the tool from a different folder (or machine) than the one that wrote the baseline. A
+  baseline entry that no longer matches anything (you fixed it) is reported as a diagnostic;
+  re-run `--write-baseline` to prune.
 - **`rules.yml` ignore list** — a human-readable list of individual findings to silence, kept
   right in your `rules.yml` (the one file you edit). Add an `ignore:` block of fingerprints:
   ```yaml

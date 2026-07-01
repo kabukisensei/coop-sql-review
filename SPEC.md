@@ -65,7 +65,7 @@ coop-sql-review --version
 `--format json` emits (stable keys, sorted, deterministic):
 ```json
 {
-  "tool": "coop-sql-review", "schema_version": 1, "version": "x.y.z",
+  "tool": "coop-sql-review", "schema_version": 2, "version": "x.y.z",
   "standards": {"path": "...", "sha256": "..."},
   "files_checked": 12,
   "verdict": {"clean": false, "highest_severity": "warning"},
@@ -84,7 +84,9 @@ coop-sql-review --version
 }
 ```
 The agent consumes `findings` directly and reasons about `agent_review` items using the prose
-standards. Same two-audience pattern as coop-data-doc (machine + human).
+standards. Same two-audience pattern as coop-data-doc (machine + human). The `fingerprint` is the
+stable suppression key: schema v2 hashes `(rule_id, object, message/note)` only — no file path, no
+line — so baselines and `rules.yml` ignore lists survive cwd/machine changes.
 
 ## Build milestones
 - **M0** — scaffold from the playbook (package, CLI stub, ci, publish, upgrade, ruff).

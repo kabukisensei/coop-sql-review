@@ -35,9 +35,13 @@ class Finding:
         return (self.file, self.line, severity_rank(self.severity), self.rule_id, self.object, self.message)
 
     def fingerprint(self) -> str:
-        """Stable, line-independent identity, so a consumer can track or suppress
-        this finding across runs even as lines shift above it."""
-        return _fingerprint(self.rule_id, self.file, self.object, self.message)
+        """Stable, line- AND path-independent identity, so a consumer can track
+        or suppress this finding across runs even as lines shift above it — and
+        from any working directory or machine. ``file`` is the cwd-relative
+        display path, so it deliberately does NOT participate: the identity is
+        (rule_id, object, message). Two files carrying the same qualified object
+        + message collide by design — they are the same logical issue."""
+        return _fingerprint(self.rule_id, self.object, self.message)
 
 
 @dataclass(frozen=True)
@@ -55,5 +59,6 @@ class AgentReviewItem:
         return (self.file, self.rule_id, self.object, self.line, self.note)
 
     def fingerprint(self) -> str:
-        """Stable, line-independent identity (see :meth:`Finding.fingerprint`)."""
-        return _fingerprint(self.rule_id, self.file, self.object, self.note)
+        """Stable, line- and path-independent identity (see
+        :meth:`Finding.fingerprint`): (rule_id, object, note)."""
+        return _fingerprint(self.rule_id, self.object, self.note)

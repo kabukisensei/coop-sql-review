@@ -93,6 +93,8 @@ SELECT code FROM g.t WHERE code = 5;
     assert f.object == ""
     assert "code" in f.message
     assert "VARCHAR" in f.message
+    # String column vs numeric literal: the COLUMN gets converted — the harmful direction.
+    assert "hurts SARGability" in f.message
 
 
 def test_implicit_convert_positive_numeric_col_vs_string():
@@ -104,6 +106,27 @@ SELECT amt FROM g.t WHERE amt = '5';
     findings = run(IMPLICIT_RULE, sql)
     assert len(findings) == 1
     assert "INT" in findings[0].message
+    # Numeric column vs string literal: type precedence converts the LITERAL once;
+    # the predicate stays SARGable, so the message must not claim otherwise.
+    assert "harmless to SARGability" in findings[0].message
+    assert "hurts" not in findings[0].message
+
+
+def test_implicit_convert_direction_specific_messages():
+    # Both mismatch directions are flagged, but each carries its own rationale:
+    # converting the COLUMN kills seeks; converting the LITERAL is a clarity nit.
+    sql = """\
+CREATE TABLE silver.t (code VARCHAR(10), qty INT);
+GO
+SELECT 1 FROM silver.t WHERE code = 5;
+SELECT 1 FROM silver.t WHERE qty = '5';
+"""
+    findings = run(IMPLICIT_RULE, sql)
+    assert len(findings) == 2
+    by_line = {f.line: f.message for f in findings}
+    assert "hurts SARGability" in by_line[3]  # string column vs numeric literal
+    assert "harmless to SARGability" in by_line[4]  # numeric column vs string literal
+    assert "match the literal type" in by_line[4]
 
 
 def test_implicit_convert_negative_matched_types():

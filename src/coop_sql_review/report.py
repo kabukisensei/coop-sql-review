@@ -45,7 +45,10 @@ def _sty(text: str, *codes: str, color: bool) -> str:
 
 # The agent JSON contract version. Bump on any breaking change to the shape so a
 # consumer can pin/branch on it; additive fields don't require a bump.
-SCHEMA_VERSION = 1
+# v2: fingerprints dropped the display path from their identity (rule_id, object,
+# message/note only), so baselines and rules.yml ignore lists survive a cwd/machine
+# change; baselines written under v1 must be regenerated once.
+SCHEMA_VERSION = 2
 
 
 def _verdict(result: Result) -> dict:
@@ -73,7 +76,7 @@ def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
                 "object": f.object,
                 "message": f.message,
                 "standard_ref": f.standard_ref,
-                "fingerprint": f.fingerprint(),  # stable, line-independent identity
+                "fingerprint": f.fingerprint(),  # stable, line- and path-independent identity
             }
             for f in result.findings
         ],

@@ -5,7 +5,38 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
-## [Unreleased]
+## [0.5.0] — 2026-07-01
+### Changed
+- **BREAKING (one-time): finding fingerprints no longer include the file path** —
+  `schema_version` bumped to **2**. The identity is now `(rule_id, object, message)` for findings
+  and `(rule_id, object, note)` for agent-review items, so baselines and `rules.yml` `ignore:`
+  lists keep matching when the tool runs from a different working directory, a scheduled task, or
+  another machine (the old fingerprints hashed the cwd-relative display path). Two files carrying
+  the same rule + qualified object + message now share a fingerprint by design — they are the same
+  logical issue, and suppressing one suppresses both. **Action: delete and regenerate any
+  baseline files (`--write-baseline`) and `rules.yml` `ignore:` lists once** — old fingerprints
+  will no longer match (they'd surface as stale diagnostics). Matches the identical change in
+  coop-dax-review.
+- **Suppressions now cover `agent_review` items** exactly like findings: inline
+  `coop-sql-review:ignore` directives, `--baseline` fingerprints, and the `rules.yml` `ignore:`
+  list all silence agent-review items too, and `--write-baseline` records their fingerprints. A
+  baseline/ignore entry that matches only an agent-review item is not reported as stale.
+- **SQL-SARGABILITY** now enforces §A's full scope: `<>` comparisons, `IN` memberships and
+  `BETWEEN` ranges whose subject side wraps a column in a function (`YEAR(d) IN (2024, 2025)`),
+  and arithmetic on the column side (`qty + 1 > 100`, `amount * 1.1 >= 50` — §A's `col + x`).
+  Bare-column `IN`/`BETWEEN` and value-side arithmetic (`x > qty + 1`) stay clean; the finding
+  message now says "function or arithmetic on a column".
+- **SQL-DATE-FILTER-PARAM** now also flags hard-coded datetime literals
+  (`'2026-01-01 00:00:00'`, `'2026-01-01T23:59:59.997'`) and the compact `'YYYYMMDD'` form
+  (`'20260101'`) — still fullmatch-anchored, so 8-digit non-dates like `'00001234'` and free text
+  containing a date never fire.
+- **SQL-IMPLICIT-CONVERT** messages are now direction-aware: a string column vs a numeric literal
+  keeps the "implicit conversion hurts SARGability (§C)" message (the column is converted per
+  row); a numeric column vs a string literal now says the conversion of the literal is
+  **harmless to SARGability** — match the literal type for clarity — instead of wrongly claiming
+  a performance problem.
+
+## [0.4.0] — 2026-07-01
 ### Fixed
 - **`GO <count>`** (the T-SQL repeat form) is now treated as a batch separator, so statements
   after it are linted instead of being silently swallowed by the merged parse.
