@@ -60,3 +60,15 @@ def test_direct_insert_values_is_flagged_with_row_count():
     assert len(findings) == 1
     assert "3 row(s)" in findings[0].message
     assert findings[0].object == "gold.t"
+
+
+# --- GO <count>: the repeat form must still separate batches, so statements
+#     after it are linted rather than silently dropped by the merged parse. ---
+
+
+def test_statements_after_go_count_are_still_linted():
+    from coop_sql_review.rules.sql_no_select_star import RULE as STAR_RULE
+
+    sql = "INSERT INTO dbo.t VALUES (1)\nGO 5\nSELECT * FROM dbo.x\n"
+    findings = _run(STAR_RULE, sql)
+    assert [(f.rule_id, f.line) for f in findings] == [("SQL-NO-SELECT-STAR", 3)]

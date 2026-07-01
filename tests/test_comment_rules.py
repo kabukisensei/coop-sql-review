@@ -207,3 +207,31 @@ def test_file_starting_in_ddl_is_flagged_once_at_line_one():
     findings = run(HEADER_RULE, NO_HEADER_DDL)
     assert len(findings) == 1
     assert findings[0].line == 1
+
+
+def test_parenthesized_if_not_exists_guard_not_flagged():
+    # REGRESSION (FP): a parenthesized IF (NOT EXISTS (...)) DDL guard is still
+    # a control-flow existence guard, not the query predicate §7 is about.
+    sql = (
+        "IF (NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 't'))\n"
+        "BEGIN\n"
+        "    CREATE TABLE dbo.t (a int);\n"
+        "END\n"
+    )
+    assert run(EXISTS_RULE, sql) == []
+
+
+def test_parenthesized_while_exists_guard_not_flagged():
+    sql = "WHILE (EXISTS (SELECT 1 FROM dbo.queue))\nBEGIN\n    DELETE TOP (10) FROM dbo.queue;\nEND\n"
+    assert run(EXISTS_RULE, sql) == []
+
+
+def test_parenthesized_where_not_exists_predicate_still_flagged():
+    # The loosened guard lookback must not classify a parenthesized WHERE
+    # predicate as a guard — §7 still applies there.
+    sql = (
+        "SELECT cust.CustomerId\n"
+        "FROM silver.dim_customer cust\n"
+        "WHERE (NOT EXISTS (SELECT 1 FROM gold.fact_sales s WHERE s.CustomerId = cust.CustomerId));\n"
+    )
+    assert len(run(EXISTS_RULE, sql)) == 1

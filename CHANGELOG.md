@@ -5,6 +5,35 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [Unreleased]
+### Fixed
+- **`GO <count>`** (the T-SQL repeat form) is now treated as a batch separator, so statements
+  after it are linted instead of being silently swallowed by the merged parse.
+- **UTF-16/32 `.sql` files** (SSMS "Save with Encoding: Unicode") are decoded via their BOM and
+  linted normally; a file that can't be decoded (UTF-16 without a BOM, binary, invalid bytes)
+  now yields a `file_unreadable` diagnostic naming the file — never a silent zero-findings pass.
+- **SQL-JOIN-FILTER** no longer flags sized `CAST`/`CONVERT` key-alignment wrappers
+  (`CAST(a.id AS VARCHAR(10))`), matching the rule's documented tolerance.
+- **SQL-ORDER-BY-IN-VIEW** no longer flags `ORDER BY ... OFFSET` paging inside views/subqueries
+  (T-SQL honors ORDER BY with TOP, OFFSET, or FETCH).
+- **SQL-EXISTS-COMMENT / SQL-EXISTS-WHY-QUALITY** recognize parenthesized guards
+  (`IF (NOT EXISTS (...))`) as DDL/control guards, not §7 query predicates.
+- A malformed or mis-encoded `rules.yml` (bad YAML, non-mapping root or `rules:`, unknown
+  severity, non-UTF-8 file) is now a friendly one-line usage error (exit 2), never a traceback.
+- `--write-baseline` to an unwritable path is a friendly one-line error instead of a traceback.
+
+### Changed
+- **Zero `.sql` files found still renders the full report** in every format/sink, with
+  `files_checked: 0` and a `scan_empty` diagnostic per searched path (machine-visible typo
+  detection); **`--strict` now exits 2 when zero files were checked**, so a typo'd path can't
+  pass a CI gate as clean.
+- An **explicit `--config` path that doesn't exist is now an error** (exit 2) instead of being
+  silently ignored; auto-discovery absence stays silent, and `--save-ignores` may still name a
+  new file to create.
+- **`--format html` always writes a file** (default `coop-sql-review-report.html` when `-o` is
+  omitted) and announces/opens it — mirroring `coop-dax-review` — instead of dumping raw HTML
+  to stdout.
+
 ## [0.3.1] — 2026-07-01
 ### Changed
 - **`check --help`** now documents the report-file flags (`--html`/`--md`) and `--save-ignores`

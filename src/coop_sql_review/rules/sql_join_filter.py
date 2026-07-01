@@ -34,7 +34,18 @@ _ALIGNMENT_WRAPPERS = (exp.Coalesce, exp.Cast, exp.Convert, exp.Collate)
 # Node types allowed inside an alignment wrapper for it to count as part of the
 # key: bare columns/identifiers, literals, type/collation tokens, NULL, and
 # nested alignment wrappers (handled separately in ``_is_alignment_subtree``).
-_ALIGNMENT_LEAVES = (exp.Column, exp.Identifier, exp.Literal, exp.DataType, exp.Var, exp.Null)
+# ``exp.DataTypeParam`` is the size/precision of a sized type (``VARCHAR(10)``,
+# ``DECIMAL(19, 4)``) — it can only hold literals/vars, so it cannot smuggle a
+# business function past the tolerance.
+_ALIGNMENT_LEAVES = (
+    exp.Column,
+    exp.Identifier,
+    exp.Literal,
+    exp.DataType,
+    exp.DataTypeParam,
+    exp.Var,
+    exp.Null,
+)
 
 
 def _is_alignment_subtree(node: exp.Expression) -> bool:

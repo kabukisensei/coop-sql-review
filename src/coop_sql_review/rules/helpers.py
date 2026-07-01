@@ -16,8 +16,13 @@ from coop_sql_review.sql_common import table_parts
 # EXISTS( as a predicate, located in code (comments/strings already masked out).
 _EXISTS_RE = re.compile(r"\b(?:NOT\s+)?EXISTS\s*\(", re.IGNORECASE)
 # An IF/WHILE just before it makes this a control/DDL existence guard, not the
-# query-predicate EXISTS that §7 is about.
-_GUARD_BEFORE_RE = re.compile(r"\b(?:IF|WHILE)\s+(?:NOT\s+)?$", re.IGNORECASE)
+# query-predicate EXISTS that §7 is about. Tolerates a parenthesized condition
+# (``IF (NOT EXISTS (...))``) — the paren may only sit between the keyword and
+# the (NOT) EXISTS, so a ``WHERE (NOT EXISTS ...)`` predicate never matches.
+_GUARD_BEFORE_RE = re.compile(r"\b(?:IF|WHILE)\s*\(?\s*(?:NOT\s+)?$", re.IGNORECASE)
+# How far back to look for the guard keyword: long enough for
+# ``WHILE  ( NOT `` with generous whitespace, short enough to stay local.
+_GUARD_WINDOW = 24
 
 
 def exists_sites(parsed) -> list[tuple[int, bool]]:
@@ -32,7 +37,7 @@ def exists_sites(parsed) -> list[tuple[int, bool]]:
     sites: list[tuple[int, bool]] = []
     for match in _EXISTS_RE.finditer(parsed.masked):
         line = parsed.line_of_offset(match.start())
-        preceding = parsed.masked[max(0, match.start() - 16) : match.start()]
+        preceding = parsed.masked[max(0, match.start() - _GUARD_WINDOW) : match.start()]
         sites.append((line, bool(_GUARD_BEFORE_RE.search(preceding))))
     return sites
 

@@ -166,7 +166,7 @@ coop-sql-review check sql-folder --html review.html --md review.md
 | `-o`, `--output <file>` | Write the report to a file instead of the screen (best for big runs). |
 | `--html <file>` | *Also* write a self-contained HTML report to this file (composes with `--format`; it's an extra copy, and never opens a browser). |
 | `--md <file>` | *Also* write a Markdown report to this file (composes with `--format`; an extra copy). |
-| `--format text\|json\|markdown\|html` | `text` (default) for the screen, `html` for a clean browser report, `markdown` for a readable file, `json` for tools/the agent. |
+| `--format text\|json\|markdown\|html` | `text` (default) for the screen, `html` for a clean browser report (always written to a file — `coop-sql-review-report.html` in the current folder unless you give `-o`), `markdown` for a readable file, `json` for tools/the agent. |
 | `--open` / `--no-open` | Whether to open an HTML report in your browser when it's written. Default: opens automatically when you're in a terminal; `--no-open` to skip. |
 | `--color` / `--no-color` | Force colored or plain text output. Default: auto — colored at a terminal, plain when piped or redirected (also honors `NO_COLOR`). |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
@@ -174,9 +174,9 @@ coop-sql-review check sql-folder --html review.html --md review.md
 | `--write-baseline <file>` | Record the current findings to this baseline file (then report as usual). |
 | `--save-ignores` | After the report, interactively tick findings to add to your `rules.yml` ignore list, so they're silenced next run (see §9). |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
-| `--config <rules.yml>` | Turn rules on/off, change their severity, or list ignored findings (see §7). A `rules.yml` in the current folder is picked up automatically, so `--config` is optional. |
+| `--config <rules.yml>` | Turn rules on/off, change their severity, or list ignored findings (see §7). A `rules.yml` in the current folder is picked up automatically, so `--config` is optional. (A `--config` path that doesn't exist is an error, so a typo can't silently drop your overrides.) |
 | `--log-file <file>` | Also write the diagnostics (parse problems, errors) to a file. |
-| `--strict` | Exit with an error code if any finding **at or above `--min-severity`** remains — for CI gates (see §6). |
+| `--strict` | Exit with an error code if any finding **at or above `--min-severity`** remains — for CI gates (see §6). Also fails when **no `.sql` files were checked at all**, so a typo'd path can't pass silently. |
 | `--dialect <name>` | SQL dialect to parse (default `tsql`, which fits Fabric). |
 
 Run `coop-sql-review rules` any time to see the current full list of checks.
@@ -187,7 +187,8 @@ Run `coop-sql-review rules` any time to see the current full list of checks.
 
 By default the tool **never fails a build** (it's advisory). If a team *wants* a gate, add
 `--strict` with a severity floor — it then exits with an error code when something at/above that
-level is found:
+level is found, **or when no `.sql` files were found/checked at all** (so a typo'd folder path
+fails the gate instead of passing as “clean”):
 
 ```
 coop-sql-review check sql-folder --strict --min-severity warning
@@ -308,7 +309,8 @@ estate doesn't make every run noisy:
 - **Windows: odd characters in the report** — the tool prints UTF-8 and is tested on Windows; if
   your console looks garbled, use Windows Terminal (the default on Windows 11).
 - **"No .sql files found"** — double-check the folder path; the tool only reads files ending in
-  `.sql`.
+  `.sql`. The report still renders (with `files checked: 0` and a `scan_empty` diagnostic), and
+  `--strict` treats a zero-file run as a failure.
 
 ---
 

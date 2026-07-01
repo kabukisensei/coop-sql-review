@@ -3,17 +3,22 @@
 Thin wrapper over the pipeline (discover -> parse -> run rules -> render).
 Advisory by default: exit code 0 no matter what is found. ``--strict`` is the
 opt-in CI gate — exit 2 when any reported finding remains after the
-``--min-severity`` filter.
+``--min-severity`` filter, or when zero files were checked (a typo'd path must
+not pass as clean). CLI input errors (bad flags, missing/malformed --config)
+are one-line usage errors (exit 2); unwritable output sinks are one-line
+ClickExceptions (exit 1). Never a traceback.
 """
 
 from __future__ import annotations
 
+import codecs
 import logging
 import os
 import sys
 from pathlib import Path
 
 import click
+import yaml
 
 from coop_sql_review import __version__
 from coop_sql_review.diagnostics import (
@@ -21,6 +26,7 @@ from coop_sql_review.diagnostics import (
     CONFIG_UNKNOWN_RULE,
     FILE_UNREADABLE,
     IGNORE_STALE,
+    SCAN_EMPTY,
     Diagnostic,
 )
 from coop_sql_review.engine import run_rules
@@ -47,6 +53,10 @@ from coop_sql_review.standards import (
 )
 
 _SEVERITY_CHOICE = click.Choice(SEVERITIES)
+
+# Where `--format html` lands when -o is omitted: HTML is meant for a browser,
+# so it is always written to a file (mirrors coop-dax-review's convention).
+_DEFAULT_HTML_NAME = "coop-sql-review-report.html"
 
 
 def _display_path(path: Path) -> str:
@@ -80,8 +90,65 @@ def discover_sql_files(paths: tuple[str, ...]) -> list[Path]:
     return sorted(found.values(), key=lambda p: _display_path(p))
 
 
+# BOM -> codec, longest BOM first: the UTF-32-LE BOM (ff fe 00 00) starts with
+# the UTF-16-LE BOM (ff fe), so order matters. UTF-16 is what Windows tooling
+# actually produces (SSMS "Save with Encoding: Unicode", PowerShell 5.1 `>`).
+_BOM_ENCODINGS = (
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
+
+
+def _decode_sql_bytes(raw: bytes, display: str) -> tuple[str | None, Diagnostic | None]:
+    """Decode a ``.sql`` file's bytes BOM-aware; a coverage gap is never silent.
+
+    Returns ``(text, diagnostic)``: a UTF-16/32 BOM selects that codec (the file
+    is then linted normally); anything else decodes as ``utf-8-sig``. Bytes that
+    are not valid for the codec still decode (with replacements) so the file is
+    linted, but a warning Diagnostic surfaces the gap. Text that comes out
+    NUL-riddled (UTF-16 saved without a BOM, or binary) would parse into garbage
+    and dodge every rule, so it is skipped with an error Diagnostic instead of
+    being reported as silently clean — ``text`` is ``None`` in that case.
+    """
+    encoding = "utf-8-sig"
+    for bom, bom_encoding in _BOM_ENCODINGS:
+        if raw.startswith(bom):
+            encoding = bom_encoding
+            break
+    try:
+        text = raw.decode(encoding)
+        diagnostic = None
+    except UnicodeDecodeError as exc:
+        text = raw.decode(encoding, errors="replace")
+        diagnostic = Diagnostic(
+            severity="warning",
+            category=FILE_UNREADABLE,
+            file=display,
+            line=0,
+            message=(
+                f"file is not valid {encoding} ({exc.reason} at byte {exc.start}) - decoded with "
+                "replacement characters, so findings in it may be off. Re-save the file as UTF-8."
+            ),
+        )
+    if "\x00" in text:
+        return None, Diagnostic(
+            severity="error",
+            category=FILE_UNREADABLE,
+            file=display,
+            line=0,
+            message=(
+                "file looks like UTF-16 without a BOM (or binary) - it cannot be checked. "
+                "Re-save it as UTF-8 (or UTF-16 with a BOM) and re-run."
+            ),
+        )
+    return text, diagnostic
+
+
 def _parse_files(files: list[Path], dialect: str, on_file=None) -> tuple[list[ParsedFile], list[Diagnostic]]:
-    """Parse each file; an unreadable file becomes a diagnostic, not a crash.
+    """Parse each file; an unreadable/undecodable file becomes a diagnostic,
+    not a crash and never a silent skip.
 
     ``on_file`` (optional) is ticked once per file for progress reporting.
     """
@@ -91,7 +158,7 @@ def _parse_files(files: list[Path], dialect: str, on_file=None) -> tuple[list[Pa
         if on_file:
             on_file(path)
         try:
-            text = path.read_text(encoding="utf-8-sig", errors="replace")
+            raw = path.read_bytes()
         except OSError as exc:
             read_diagnostics.append(
                 Diagnostic(
@@ -102,6 +169,11 @@ def _parse_files(files: list[Path], dialect: str, on_file=None) -> tuple[list[Pa
                     message=f"could not read file: {exc}",
                 )
             )
+            continue
+        text, diagnostic = _decode_sql_bytes(raw, _display_path(path))
+        if diagnostic is not None:
+            read_diagnostics.append(diagnostic)
+        if text is None:
             continue
         parsed.append(parse_sql(_display_path(path), text, dialect=dialect))
     return parsed, read_diagnostics
@@ -144,6 +216,46 @@ def _config_write_path(config_path: str | None) -> Path:
     """Where to WRITE ignores: --config if given, else ./rules.yml (never the
     bundled standards directory inside the installed package)."""
     return Path(config_path) if config_path else Path.cwd() / "rules.yml"
+
+
+def _load_rule_config(path: Path) -> RuleConfig:
+    """``RuleConfig.load`` under the CLI's friendly-error contract.
+
+    rules.yml is a hand-edited file (and auto-discovered from the cwd), so any
+    problem in it — bad YAML, wrong shape, an unknown severity, a wrong encoding
+    — must become a one-line usage error (exit 2) naming the file, never a
+    traceback. A path that simply doesn't exist loads as the empty config; the
+    explicit ``--config``-typo case is rejected earlier, in ``check``.
+    """
+    if not path.is_file():
+        return RuleConfig()
+
+    def _bad(problem: str) -> click.UsageError:
+        return click.UsageError(f"could not load config {path}: {problem}")
+
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+        if "\x00" in text:  # UTF-16 without a BOM decodes as NUL-riddled "UTF-8"
+            raise UnicodeDecodeError("utf-8", b"", 0, 1, "null byte")
+        data = yaml.safe_load(text)
+    except UnicodeDecodeError:
+        raise _bad("the file is not UTF-8 - re-save it as UTF-8 (PowerShell '>' writes UTF-16)") from None
+    except yaml.YAMLError as exc:
+        raise _bad(f"invalid YAML - {' '.join(str(exc).split())}") from exc
+    except OSError as exc:
+        raise _bad(str(exc)) from exc
+    if data is not None and not isinstance(data, dict):
+        raise _bad("the top level must be a mapping (e.g. a `rules:` section)")
+    if isinstance(data, dict) and data.get("rules") is not None and not isinstance(data["rules"], dict):
+        raise _bad("`rules:` must be a mapping of rule ids to settings, not a list")
+    try:
+        return RuleConfig.load(path)
+    except StandardsError as exc:
+        raise _bad(str(exc)) from exc
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        # Anything the shape checks above didn't anticipate (e.g. a malformed
+        # `ignore:` entry) still surfaces as the same friendly one-liner.
+        raise _bad(f"unexpected structure ({exc})") from exc
 
 
 def _write_extra_report(path: str, content: str, label: str) -> None:
@@ -385,7 +497,11 @@ def cli(ctx: click.Context) -> None:
     default=None,
     help="Write a diagnostics log (parse problems, rule errors) to this file.",
 )
-@click.option("--strict", is_flag=True, help="Exit 2 if any reported finding remains (opt-in CI gate).")
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="Exit 2 if any reported finding remains, or if no files were checked (opt-in CI gate).",
+)
 @click.pass_context
 def check(
     ctx: click.Context,
@@ -415,6 +531,9 @@ def check(
       The text report prints to the screen. To redirect or save it:
         --format text|json|markdown|html   choose the format (default: text)
         -o, --output FILE                  write that report to FILE
+      --format html always writes a file: FILE if you give -o, otherwise
+      coop-sql-review-report.html in the current folder — then opens it in
+      your browser (see --open/--no-open).
       To ALSO save shareable files in ONE run -- on top of whatever prints --
       add either or both (they compose with each other and with --format):
         --html FILE   a self-contained, branded HTML report
@@ -442,8 +561,14 @@ def check(
     except StandardsError as exc:
         raise click.ClickException(str(exc)) from exc
 
+    # An EXPLICIT --config that doesn't exist is almost always a typo — silently
+    # running with the default rules would drop the team's overrides/ignores.
+    # (With --save-ignores the flag also names the file to CREATE, so a missing
+    # file is legitimate there. Auto-discovery absence stays silent.)
+    if config_path and not Path(config_path).is_file() and not save_ignores:
+        raise click.UsageError(f"config file not found: {config_path}")
     cfg_path = _config_read_path(config_path, std_path)
-    config = RuleConfig.load(cfg_path)
+    config = _load_rule_config(cfg_path)
     rules = apply_config(all_rules(), config)
     unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
 
@@ -460,10 +585,11 @@ def check(
         click.echo(f"path not found: {p}", err=True)
 
     files = discover_sql_files(paths)
-    if not files:
-        if not missing:
-            click.echo("No .sql files found.", err=True)
-        return
+    if not files and not missing:
+        click.echo("No .sql files found.", err=True)
+    # No early return: a zero-file scan still renders the full report in every
+    # format/sink (files_checked=0 is the machine contract's own disambiguator),
+    # with scan_empty diagnostics below making the empty scan machine-visible.
 
     # Progress is stderr-only + TTY-gated, so it never pollutes the report
     # (stdout) or a redirected --output file.
@@ -473,6 +599,20 @@ def check(
         parsed, read_diagnostics = _parse_files(files, dialect, on_file=tick)
     result = run_rules(parsed, rules)
     result.diagnostics.extend(read_diagnostics)
+    if not files:
+        # One scan_empty diagnostic per searched root, so an agent (or a CI log
+        # reader) can tell a typo'd/empty path from a genuinely clean estate.
+        for root in paths or (".",):
+            problem = "path not found" if root in missing else "no .sql files found under this path"
+            result.diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    category=SCAN_EMPTY,
+                    file=Path(root).as_posix(),
+                    line=0,
+                    message=f"{problem} - nothing was checked (is the path right?)",
+                )
+            )
     for rule_id in unknown_rules:
         result.diagnostics.append(
             Diagnostic(
@@ -495,7 +635,10 @@ def check(
     # stale ignore entry can be told from one another filter already consumed.
     present_fingerprints = {f.fingerprint() for f in result.findings}
     if write_baseline_path:
-        count = write_baseline(Path(write_baseline_path), [f.fingerprint() for f in result.findings])
+        try:
+            count = write_baseline(Path(write_baseline_path), [f.fingerprint() for f in result.findings])
+        except OSError as exc:
+            raise click.ClickException(f"could not write baseline to {write_baseline_path}: {exc}") from exc
         click.echo(f"Wrote baseline of {count} finding(s) to {write_baseline_path}", err=True)
     elif baseline_path:
         baseline_fps = load_baseline(Path(baseline_path))
@@ -545,7 +688,21 @@ def check(
         body = console_lines(result, version=__version__, standards=standards, color=use_color)
         rendered = "\n".join(body) + "\n"
 
-    if output_path:
+    if fmt == "html":
+        # HTML is meant to be viewed in a browser: always write it to a file (a
+        # default name when -o is omitted — never a raw dump to the screen),
+        # announce the path, then open it (TTY-gated; --open/--no-open override).
+        # Mirrors coop-dax-review's `--format html` contract.
+        out_file = Path(output_path) if output_path else Path(_DEFAULT_HTML_NAME)
+        try:
+            out_file.write_text(rendered, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            raise click.ClickException(f"could not write report to {out_file}: {exc}") from exc
+        resolved = out_file.resolve()
+        click.echo(f"HTML report written to {resolved.as_posix()}", err=True)
+        if _should_open_report(fmt, open_report):
+            _open_report(resolved)
+    elif output_path:
         out_file = Path(output_path)
         try:
             out_file.write_text(rendered, encoding="utf-8", newline="\n")
@@ -555,8 +712,6 @@ def check(
         # Always announce the path (not gated on the TTY progress bar) so a
         # piped run or an agent can find the file it just wrote.
         click.echo(f"Report written to {resolved.as_posix()}", err=True)
-        if _should_open_report(fmt, open_report):
-            _open_report(resolved)
     else:
         click.echo(rendered, nl=False, color=use_color)
 
@@ -577,7 +732,9 @@ def check(
     if save_ignores:
         _save_ignores_interactive(result.findings, config_path)
 
-    if strict and result.findings:
+    # --strict also fails when NOTHING was checked (files_checked == 0): a
+    # typo'd path in CI must not pass as silently clean.
+    if strict and (result.findings or result.files_checked == 0):
         sys.exit(2)
 
 

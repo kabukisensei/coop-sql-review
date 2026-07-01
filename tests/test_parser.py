@@ -140,3 +140,28 @@ def test_comment_after_dashed_identifier_is_still_found():
 def test_unparseable_text_is_tolerated():
     parsed = parse_sql("weird.sql", "CREATE TABLE t (a int);\nGO\nCURSOR nonsense ((( ;\n")
     assert any(o.name == "t" for o in parsed.objects)  # the good batch still parses
+
+
+def test_go_with_count_is_a_batch_separator():
+    # REGRESSION: T-SQL's repeat form `GO 5` must split batches like a plain GO
+    # — otherwise every statement after it is silently swallowed (sqlglot drops
+    # them from the merged batch with no diagnostic).
+    sql = "INSERT INTO dbo.t VALUES (1)\nGO 5\nSELECT * FROM dbo.x\n"
+    batches = split_batches_with_lines(sql)
+    assert len(batches) == 2
+    batch_text, start_line = batches[1]
+    assert batch_text.strip() == "SELECT * FROM dbo.x"
+    assert start_line == 3
+
+
+def test_go_count_variants_split():
+    # Whitespace/casing/semicolon variants of `GO n` all separate batches.
+    for go in ("GO 2", "go 10", "  GO   3  ", "GO 2;"):
+        sql = f"SELECT 1\n{go}\nSELECT 2\n"
+        assert len(split_batches_with_lines(sql)) == 2, go
+
+
+def test_go_with_trailing_junk_does_not_split():
+    # `GO` followed by anything that is not a count is NOT a separator line.
+    sql = "SELECT 1\nGO TO work\nSELECT 2\n"
+    assert len(split_batches_with_lines(sql)) == 1

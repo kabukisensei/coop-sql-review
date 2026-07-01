@@ -20,8 +20,10 @@ from sqlglot import exp
 
 from coop_sql_review.identifiers import normalize_identifier
 
-# A line that is only a GO batch separator.
-GO_LINE_RE = re.compile(r"^\s*GO\s*;?\s*$", re.IGNORECASE)
+# A line that is only a GO batch separator — including T-SQL's repeat form
+# ``GO <count>`` (the execution count is irrelevant to linting; what matters is
+# that the statements after it stay in their own batch and are still checked).
+GO_LINE_RE = re.compile(r"^\s*GO(?:\s+\d+)?\s*;?\s*$", re.IGNORECASE)
 PROC_HEADER_RE = re.compile(r"\bCREATE\s+(?:OR\s+ALTER\s+)?PROC(?:EDURE)?\s+([\w\[\].]+)", re.IGNORECASE)
 
 

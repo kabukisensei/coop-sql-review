@@ -9,7 +9,11 @@ estate. It parses `.sql` files and reports anything that doesn't match `docs/sta
 Two non-negotiable invariants shape every design decision:
 
 - **Advisory, never blocking** — it reports; it never edits, rejects, or stops anything. Exit
-  code is always `0` unless the caller opts into `--strict` (then exit `2` when findings remain).
+  code is always `0` unless the caller opts into `--strict` (then exit `2` when findings remain
+  — or when **zero files were checked**, so a typo'd path can't pass CI as "clean"). CLI input
+  errors (missing/malformed `--config`, bad flags) are friendly one-line usage errors, exit `2`;
+  unwritable output sinks (`-o`, `--html`/`--md`, `--log-file`, `--write-baseline`) raise a
+  one-line `ClickException`, exit `1`.
 - **Offline + deterministic** — no network in the core; sorted iteration; LF newlines; `sort_keys`
   on JSON → byte-identical output across runs/OSes. (`upgrade.py` is the only networked module
   and is never imported by the core.)
@@ -39,8 +43,13 @@ exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the 
 
 **Config discovery:** `cli._config_read_path` reads `rules.yml` from `--config` if given, else a
 `rules.yml` in the **current directory** (so save-an-ignore-then-re-run works with no flags), else
-the conventional spot beside the standards file. `cli._config_write_path` (used by `--save-ignores`)
-writes to `--config` if given, else `./rules.yml` — never the bundled standards dir in the package.
+the conventional spot beside the standards file. An **explicit `--config` that doesn't exist is a
+usage error (exit 2)** — except under `--save-ignores`, where the flag also names the file to
+create; auto-discovery absence stays silent. All rules.yml load problems (bad YAML, non-mapping
+root/`rules:`, unknown severity, non-UTF-8 file) go through `cli._load_rule_config`, which turns
+them into one-line usage errors naming the file — never a traceback. `cli._config_write_path`
+(used by `--save-ignores`) writes to `--config` if given, else `./rules.yml` — never the bundled
+standards dir in the package.
 
 **`upgrade`/`update` are advisory too — they never self-apply.** They query PyPI to report
 whether a newer release exists, then *print* the command to run (`upgrade.upgrade_command(plan)`,
@@ -54,11 +63,14 @@ display-friendly tokens (`python` over `sys.executable`). `--check` reports stat
 **HTML report (`--format html`)** is self-contained and Cooptimize-branded: `report.to_html`
 inlines the CSS (brand palette: navy `#004068`, accent `#e84028`, green gradient) and base64-embeds
 the bundled logo (`data/cooptimize-logo.png`) — no network, all dynamic text HTML-escaped. The logo
-ships via the `[tool.hatch.build] include = [".../data/*"]` glob. When `-o` writes any report,
-`check` echoes the resolved POSIX path to stderr **unconditionally** (not gated on the progress
-bar) so a piped run or agent can find the file; an HTML report is then opened in the browser via
-`cli._open_report` — gated by `cli._should_open_report` to `fmt == "html"` + interactive TTY, with
-`--open`/`--no-open` overriding. Opening is best-effort (failure prints a note, never fatal).
+ships via the `[tool.hatch.build] include = [".../data/*"]` glob. `--format html` **always writes
+a file** (mirrors coop-dax-review): to `-o` if given, else `cli._DEFAULT_HTML_NAME`
+(`coop-sql-review-report.html`) in the current directory — never a raw dump to stdout. When any
+report file is written (`-o` or the html default), `check` echoes the resolved POSIX path to
+stderr **unconditionally** (not gated on the progress bar) so a piped run or agent can find the
+file; an HTML report is then opened in the browser via `cli._open_report` — gated by
+`cli._should_open_report` to `fmt == "html"` + interactive TTY, with `--open`/`--no-open`
+overriding. Opening is best-effort (failure prints a note, never fatal).
 
 **Off-by-default rules:** `Rule.default_enabled=False` ships a rule but excludes it from runs
 unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently off by
@@ -167,7 +179,12 @@ Carried from coop-data-doc's hard-won lessons:
   is safe on any code page. Keep it that way.
 - **Line endings:** `parse_sql` normalizes CRLF/CR → LF up front, so line numbers are identical
   on Windows and Linux. Any file the tool *writes* uses `newline="\n"` (e.g. `--log-file`).
-- **Reads:** files are read `encoding="utf-8-sig", errors="replace"` (BOM-aware, never crashes).
+- **Reads:** `.sql` files are read BOM-aware via `cli._decode_sql_bytes`: a UTF-16/32 BOM selects
+  that codec (SSMS "Save with Encoding: Unicode" files are linted normally); everything else is
+  `utf-8-sig`. Invalid bytes still decode (with replacements) but surface a `file_unreadable`
+  warning diagnostic; NUL-riddled text (UTF-16 saved without a BOM, or binary) is skipped with an
+  error diagnostic instead of parsing into garbage — a coverage gap is never silent, and reads
+  never crash.
 - **Paths:** findings show POSIX paths (`_display_path` → `.as_posix()`, relative to cwd when
   possible) so output is identical across OSes; cross-drive paths fall back to absolute.
 - CI runs the full matrix on **ubuntu AND windows** × py3.10–3.13 — keep `ruff format --check`

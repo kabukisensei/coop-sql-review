@@ -2,12 +2,13 @@
 
 §E (proposed additions): an ``ORDER BY`` inside a view body, a CTE, or a
 derived-table subquery is not guaranteed to be honored by the engine (it only
-takes effect when paired with ``TOP``) — so it misleads readers and adds no
-ordering. This rule flags an ``exp.Order`` whose nearest enclosing ``SELECT``
-(a) has no ``TOP``/``LIMIT`` (which in T-SQL both parse to the ``limit`` arg),
-and (b) sits inside a ``CREATE VIEW`` body, an ``exp.CTE``, or an
-``exp.Subquery``. A top-level ``SELECT ... ORDER BY`` (a real result set) and a
-``SELECT TOP n ... ORDER BY`` are both allowed.
+takes effect when paired with ``TOP`` or ``OFFSET``) — so it misleads readers
+and adds no ordering. This rule flags an ``exp.Order`` whose nearest enclosing
+``SELECT`` (a) has no ``TOP``/``LIMIT``/``FETCH`` (which in T-SQL all parse to
+the ``limit`` arg) and no ``OFFSET`` (a bare ``OFFSET n ROWS`` parses to the
+``offset`` arg), and (b) sits inside a ``CREATE VIEW`` body, an ``exp.CTE``, or
+an ``exp.Subquery``. A top-level ``SELECT ... ORDER BY`` (a real result set), a
+``SELECT TOP n ... ORDER BY``, and paging ``ORDER BY ... OFFSET`` are allowed.
 
 An ``ORDER BY`` that belongs to a window function (``OVER (ORDER BY ...)``,
 under ``exp.Window``) or to an ordered aggregate (``WITHIN GROUP (ORDER BY
@@ -68,6 +69,11 @@ def check(ctx: RuleContext) -> list[Finding]:
     for batch, order in ctx.parsed.find_all(exp.Order):
         select = _enclosing_select(order)
         if select is None or select.args.get("limit") is not None:
+            continue
+        # OFFSET makes the ORDER BY semantics-bearing too (T-SQL honors ORDER BY
+        # in a view/subquery when paired with TOP, OFFSET, or FOR XML). An
+        # OFFSET ... FETCH lands in `limit`; a bare OFFSET lands in `offset`.
+        if select.args.get("offset") is not None:
             continue
         if not _ignored_context(select):
             continue

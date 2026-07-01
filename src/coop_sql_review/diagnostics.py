@@ -16,3 +16,7 @@ from coop_review_core.diagnostics import (  # noqa: F401
     RULE_ERROR,
     Diagnostic,
 )
+
+# Tool-local category (not in core yet): a scan found no .sql files at all under
+# a given path — files_checked=0 must stay machine-distinguishable from "clean".
+SCAN_EMPTY = "scan_empty"

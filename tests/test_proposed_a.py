@@ -181,3 +181,18 @@ def test_distinct_smell_line_points_at_select_not_batch_start():
     findings = _run(DISTINCT_RULE, "\n\nSELECT DISTINCT a, b FROM t")
     assert len(findings) == 1
     assert findings[0].line == 3
+
+
+def test_order_by_with_offset_allowed():
+    # REGRESSION (FP): ORDER BY ... OFFSET is honored by T-SQL inside a
+    # view/derived table (like TOP and FETCH) — paging subqueries must not be
+    # flagged; "remove the ORDER BY" would even be a syntax error with OFFSET.
+    offset_only = _run(ORDER_RULE, "SELECT * FROM (SELECT c FROM silver.t ORDER BY c OFFSET 10 ROWS) AS x")
+    assert offset_only == []
+
+
+def test_order_by_with_offset_fetch_allowed():
+    # OFFSET ... FETCH parses into the `limit` arg and was already tolerated —
+    # pin it so the two paging spellings stay consistent.
+    sql = "SELECT * FROM (SELECT c FROM silver.t ORDER BY c OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY) AS x"
+    assert _run(ORDER_RULE, sql) == []

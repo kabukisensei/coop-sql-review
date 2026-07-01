@@ -50,7 +50,8 @@ coop-sql-review upgrade                # prints the command to update; never sel
 coop-sql-review --version
 ```
 - Default exit code **0** (advisory). `--strict` exits **2** when any reported finding remains
-  (after the `--min-severity` filter) — for teams who *opt in* to a CI gate. Default non-blocking.
+  (after the `--min-severity` filter) — or when **zero files were checked** (typo'd path) — for
+  teams who *opt in* to a CI gate. Default non-blocking.
 - `--standards` points at the canonical file (e.g. the company standards repo's
   `sql-standards.md`); the bundled `docs/standards.md` is the default/fallback.
 - The default text report is a sectioned terminal report (banner, one section per file with

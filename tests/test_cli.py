@@ -8,7 +8,7 @@ import json
 
 from click.testing import CliRunner
 
-from coop_sql_review.cli import cli
+from coop_sql_review.cli import cli, discover_sql_files
 
 FIXTURE = "tests/fixtures/select_star.sql"
 
@@ -174,11 +174,11 @@ def test_output_announces_resolved_path(tmp_path):
     report = tmp_path / "review.html"
     result = CliRunner().invoke(cli, ["check", str(f), "-o", str(report), "--format", "html"])
     assert result.exit_code == 0
-    # The path is announced on STDERR (stdout stays the byte-identical report
-    # artifact) even though the run is non-interactive — an agent reads the
-    # file we name. Asserting on result.stderr (not the merged result.output)
-    # guards the stdout/stderr contract: a dropped err=True would fail here.
-    assert "Report written to" in result.stderr
+    # The path is announced on STDERR (stdout stays clean for piped reads) even
+    # though the run is non-interactive — an agent reads the file we name.
+    # Asserting on result.stderr (not the merged result.output) guards the
+    # stdout/stderr contract: a dropped err=True would fail here.
+    assert "HTML report written to" in result.stderr
     assert report.resolve().as_posix() in result.stderr
 
 
@@ -251,9 +251,13 @@ def test_markdown_format(tmp_path):
 
 
 def test_html_format(tmp_path):
+    # --format html always writes a file (here via -o); never a stdout dump.
     f = tmp_path / "t.sql"
     f.write_text("SELECT * FROM x;\n", encoding="utf-8")
-    out = CliRunner().invoke(cli, ["check", str(f), "--format", "html"]).output
+    report = tmp_path / "r.html"
+    result = CliRunner().invoke(cli, ["check", str(f), "--format", "html", "-o", str(report)])
+    assert result.exit_code == 0
+    out = report.read_text(encoding="utf-8")
     assert out.startswith("<!DOCTYPE html>")
     assert "<style>" in out and "</html>" in out
     assert "SQL-NO-SELECT-STAR" in out
@@ -375,3 +379,216 @@ def test_cwd_rules_yml_is_auto_discovered(tmp_path, monkeypatch):
     (tmp_path / "rules.yml").write_text(f"ignore:\n  - fingerprint: {fp}\n", encoding="utf-8")
     out = CliRunner().invoke(cli, ["check", "q.sql"]).output  # no --config
     assert "SQL-NO-SELECT-STAR" not in out  # auto-discovered ignore silenced it
+
+
+# --- rules.yml load problems: friendly one-line errors (exit 2), never a traceback ---
+
+
+def test_config_invalid_yaml_is_friendly_error(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules: [unclosed\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "could not load config" in result.output and "rules.yml" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_config_tab_in_yaml_is_friendly_error(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules:\n\tSQL-NO-SELECT-STAR: {}\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "could not load config" in result.output
+    # the one-line contract: a YAML error's multi-line context is flattened
+    assert "\n" not in result.output.strip().split("Error: ", 1)[-1]
+
+
+def test_config_non_mapping_root_is_friendly_error(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("- just\n- a list\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "could not load config" in result.output and "mapping" in result.output
+
+
+def test_config_rules_as_list_is_friendly_error(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules:\n  - SQL-NO-SELECT-STAR\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "rules:" in result.output and "mapping" in result.output
+
+
+def test_config_unknown_severity_is_friendly_error(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules:\n  SQL-NO-SELECT-STAR:\n    severity: critical\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "invalid severity 'critical'" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_config_non_utf8_is_friendly_error(tmp_path):
+    cfg = tmp_path / "rules.yml"
+    cfg.write_bytes("rules:\n  SQL-NO-SELECT-STAR:\n    enabled: false\n".encode("utf-16-le"))
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "could not load config" in result.output and "UTF-8" in result.output
+
+
+def test_autodiscovered_bad_config_is_friendly_error_too(tmp_path, monkeypatch):
+    # A stray rules.yml in the cwd (no --config flag) gets the same treatment.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "rules.yml").write_text("rules: [unclosed\n", encoding="utf-8")
+    (tmp_path / "q.sql").write_text("SELECT a FROM t;\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", "q.sql"])
+    assert result.exit_code == 2
+    assert "could not load config" in result.output
+
+
+# --- an EXPLICIT --config path that doesn't exist is an error; discovery stays lenient ---
+
+
+def test_explicit_config_path_missing_is_error(tmp_path):
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--config", str(tmp_path / "nope.yml")])
+    assert result.exit_code == 2
+    assert "config file not found" in result.output
+
+
+def test_config_autodiscovery_absence_is_silent(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no rules.yml here or beside the standards
+    (tmp_path / "q.sql").write_text("SELECT a FROM t;\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", "q.sql"])
+    assert result.exit_code == 0
+    assert "config" not in result.output.lower()
+
+
+# --- --write-baseline to a bad path: friendly error, not a traceback ---
+
+
+def test_write_baseline_to_missing_dir_is_friendly_error(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    target = tmp_path / "no-such-dir" / "base.json"
+    result = CliRunner().invoke(cli, ["check", str(f), "--write-baseline", str(target)])
+    assert result.exit_code == 1
+    assert "could not write baseline" in result.output
+    assert "Traceback" not in result.output
+
+
+# --- zero .sql files: the machine contract still renders; --strict fails ---
+
+
+def test_zero_files_still_emits_the_json_contract(tmp_path):
+    result = CliRunner().invoke(cli, ["check", str(tmp_path), "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["files_checked"] == 0
+    assert payload["verdict"]["clean"] is True
+    assert any(d["category"] == "scan_empty" for d in payload["diagnostics"])
+    assert "No .sql files found" in result.stderr
+
+
+def test_zero_files_missing_path_is_machine_visible(tmp_path):
+    missing = tmp_path / "no-such-dir"
+    result = CliRunner().invoke(cli, ["check", str(missing), "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["files_checked"] == 0
+    diags = [d for d in payload["diagnostics"] if d["category"] == "scan_empty"]
+    assert len(diags) == 1
+    assert "path not found" in diags[0]["message"]
+    assert missing.as_posix() in diags[0]["file"]
+
+
+def test_strict_fails_on_zero_files(tmp_path):
+    # A typo'd path must not pass a --strict CI gate as silently clean.
+    empty = CliRunner().invoke(cli, ["check", str(tmp_path), "--strict"])
+    assert empty.exit_code == 2
+    typo = CliRunner().invoke(cli, ["check", str(tmp_path / "nope"), "--strict"])
+    assert typo.exit_code == 2
+
+
+def test_zero_files_report_still_reaches_output_sink(tmp_path):
+    out = tmp_path / "r.json"
+    result = CliRunner().invoke(cli, ["check", str(tmp_path), "--format", "json", "-o", str(out)])
+    assert result.exit_code == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["files_checked"] == 0
+
+
+# --- --format html always writes a file (default name when -o is omitted) ---
+
+
+def test_html_format_without_output_writes_default_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "t.sql").write_text("SELECT * FROM x;\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", "t.sql", "--format", "html"])
+    assert result.exit_code == 0
+    target = tmp_path / "coop-sql-review-report.html"
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
+    assert "<!DOCTYPE html>" not in result.stdout  # no raw HTML dump to the screen
+    assert "HTML report written to" in result.stderr
+    assert target.resolve().as_posix() in result.stderr
+
+
+def test_html_default_file_open_gating(tmp_path, monkeypatch):
+    from coop_sql_review import cli as climod
+
+    calls = []
+    monkeypatch.setattr(climod, "_open_report", lambda path: calls.append(path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "t.sql").write_text("SELECT * FROM x;\n", encoding="utf-8")
+    CliRunner().invoke(cli, ["check", "t.sql", "--format", "html"])
+    assert calls == []  # non-interactive auto -> never opens a browser
+    CliRunner().invoke(cli, ["check", "t.sql", "--format", "html", "--open"])
+    assert calls == [(tmp_path / "coop-sql-review-report.html").resolve()]
+
+
+# --- discover_sql_files: the funnel for every check run (silently scanning
+#     fewer files would look identical to a clean estate) ---
+
+
+def test_discover_finds_uppercase_extension(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (tmp_path / "sub" / "B.SQL").write_text("SELECT 1;\n", encoding="utf-8")
+    found = discover_sql_files((str(tmp_path),))
+    assert sorted(p.name for p in found) == ["B.SQL", "a.sql"]
+
+
+def test_discover_skips_hidden_directories(tmp_path):
+    for hidden in (".git", ".hidden"):
+        deep = tmp_path / hidden / "deep"
+        deep.mkdir(parents=True)
+        (deep / "x.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (tmp_path / "keep.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    found = discover_sql_files((str(tmp_path),))
+    assert [p.name for p in found] == ["keep.sql"]
+
+
+def test_discover_dedups_overlapping_roots(tmp_path):
+    # The same file reached via a dir, a nested dir, AND an explicit file path
+    # is counted exactly once.
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    f = sub / "a.sql"
+    f.write_text("SELECT 1;\n", encoding="utf-8")
+    found = discover_sql_files((str(tmp_path), str(sub), str(f)))
+    assert len(found) == 1
+    assert found[0].name == "a.sql"
+
+
+def test_discover_takes_explicit_file_as_is(tmp_path):
+    # A file passed explicitly is used even without a .sql extension.
+    f = tmp_path / "script.txt"
+    f.write_text("SELECT 1;\n", encoding="utf-8")
+    assert discover_sql_files((str(f),)) == [f]
+
+
+def test_discover_order_is_deterministic(tmp_path):
+    for name in ("b.sql", "a.sql", "c.sql"):
+        (tmp_path / name).write_text("SELECT 1;\n", encoding="utf-8")
+    found = discover_sql_files((str(tmp_path),))
+    assert [p.name for p in found] == ["a.sql", "b.sql", "c.sql"]

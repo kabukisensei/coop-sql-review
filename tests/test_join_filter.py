@@ -113,3 +113,28 @@ def test_only_dirty_join_flagged_among_many():
     findings = run(sql)
     assert len(findings) == 1
     assert findings[0].line == 3
+
+
+def test_sized_cast_key_alignment_not_flagged():
+    # REGRESSION (FP): a sized type (VARCHAR(10) -> exp.DataTypeParam) is still
+    # a documented alignment wrapper, not business logic.
+    sql = (
+        "SELECT a.x FROM silver.a AS a JOIN silver.b AS b "
+        "ON CAST(a.id AS VARCHAR(10)) = CAST(b.id AS VARCHAR(10))"
+    )
+    assert run(sql) == []
+
+
+def test_sized_convert_key_alignment_not_flagged():
+    assert run("SELECT * FROM a JOIN b ON CONVERT(VARCHAR(10), a.id) = b.code") == []
+
+
+def test_sized_decimal_cast_key_alignment_not_flagged():
+    # Multi-argument size (precision, scale) is still just a type token.
+    assert run("SELECT * FROM a JOIN b ON CAST(a.amt AS DECIMAL(19, 4)) = b.amt") == []
+
+
+def test_business_function_inside_sized_cast_still_flagged():
+    # The tolerance must not smuggle in a real function through a sized CAST.
+    findings = run("SELECT * FROM a JOIN b ON CAST(YEAR(a.d) AS VARCHAR(10)) = b.y")
+    assert len(findings) == 1
