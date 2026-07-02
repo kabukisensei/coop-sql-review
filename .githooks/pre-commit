@@ -1,0 +1,23 @@
+#!/bin/sh
+# pre-commit: version single-sourcing guard for coop-sql-review.
+# Blocks a commit that breaks the hatch dynamic-version wiring (e.g. adding a
+# static `version =` key to pyproject.toml, or losing `__version__`).
+# See AGENTS.md "Version: single source + release checks".
+#
+# Activate once per clone:  git config core.hooksPath .githooks
+#                           (make setup does this for you)
+# Emergency bypass:         git commit --no-verify  — then fix the wiring immediately.
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if [ -x ".venv/bin/python" ]; then
+    PY=".venv/bin/python"
+elif [ -x ".venv/Scripts/python.exe" ]; then
+    PY=".venv/Scripts/python.exe"          # Windows venv layout (Git Bash)
+elif command -v python3 >/dev/null 2>&1; then
+    PY="python3"
+else
+    PY="python"
+fi
+
+exec "$PY" scripts/release_check.py --pre-commit

@@ -320,10 +320,11 @@ construct isn't re-raised on every run:
 
 ## For developers & AI agents
 
-- Architecture, the rule engine, and how to add a rule: see **`CLAUDE.md`**.
+- Architecture, the rule engine, and how to add a rule: see **`AGENTS.md`** (the canonical
+  agent/developer guide; `CLAUDE.md` just imports it).
 - What to build and why: **`SPEC.md`**; the full rule taxonomy: **`RULES.md`**.
 - The standards being enforced: **`docs/standards.md`** (bundled with the tool).
-- Run the tests: `PYTHONPATH=src python -m pytest -q` · lint: `ruff check src tests`.
+- Run the tests: `make test` (= `PYTHONPATH=src python -m pytest -q`) · lint: `make lint`.
 
 This tool reuses the proven skeleton and conventions from the company's `coop-data-doc` tool
 and shared CLI playbook.
