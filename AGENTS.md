@@ -99,6 +99,22 @@ default (noisy on estates with different house styles): `SQL-HEADER-COMMENT`,
 `SQL-TABLE-LAYER-NAME`, `SQL-CTE-PREFIX`, `SQL-ALIAS-DESCRIPTIVE`, `SQL-INSERT-ALIAS-MATCH`,
 `SQL-QUERY-LABEL`. `rules` marks them `[off by default]`.
 
+## Environment
+
+- Works fully headless on Linux (and macOS/Windows) — no GUI needed; the browser/`--open` paths
+  auto-disable off-TTY, and only `upgrade` touches the network.
+- Python: create the venv with **Python 3.13** (3.10–3.13 supported; **avoid 3.14** — its venvs
+  don't process editable-install `.pth` files, which is one reason this repo installs
+  non-editable + `PYTHONPATH=src`). `make setup` uses whatever `python3` resolves to; if
+  `python3 --version` prints 3.14+, rebuild explicitly:
+  `rm -rf .venv && python3.13 -m venv .venv && .venv/bin/python -m pip install ".[dev]" build`,
+  then `git config core.hooksPath .githooks` (together that's `make setup`, interpreter pinned).
+- Before starting any work: `git fetch && git pull --ff-only`. If the pull fails, or
+  `git status --porcelain` prints changes you didn't make yourself, **stop and report** — never
+  stash, reset, or commit around them (another agent or human may share this tree).
+- Secrets: **none in this repo and none needed** — PyPI publishing is tokenless trusted
+  publishing (GitHub OIDC), and the tool itself is offline.
+
 ## Commands (dev)
 
 A `Makefile` wraps the canonical invocations — prefer it so the PYTHONPATH idiom is never typed
@@ -107,9 +123,9 @@ wrong:
 | Target | What it runs |
 |---|---|
 | `make setup` | create `.venv`, install `".[dev]" build` (non-editable), activate `.githooks` |
-| `make test` | `PYTHONPATH=src .venv/bin/python -m pytest -q` → expect **all tests passing** (zero failures/errors) |
-| `make test-local-core` | same suite, but local `~/Developer/coop-review-core/src` shadows the installed core |
-| `make lint` | `ruff check src tests` + `ruff format --check src tests` (CI runs both) |
+| `make test` | `PYTHONPATH=src .venv/bin/python -m pytest -q` → expect **all tests passing** (zero failures/errors; `390 passed` as of v0.5.0 — the count grows) |
+| `make test-local-core` | same suite, but the sibling `coop-review-core` checkout's `src` shadows the installed core (default `$HOME/Developer/coop-review-core/src`; override with `CORE_SRC=`) |
+| `make lint` | `ruff check src tests` + `ruff format --check src tests` (CI runs both) → expect `All checks passed!` then `<N> files already formatted` |
 | `make build` | `.venv/bin/python -m build --wheel` → `dist/coop_sql_review-<ver>-py3-none-any.whl` |
 | `make release-check` | `scripts/release_check.py` — version wiring + CHANGELOG entry (see below) |
 
@@ -117,8 +133,9 @@ Windows has no `make`: run the underlying commands, swapping `.venv/bin/` → `.
 
 ```bash
 # Tests / lint (run from repo root). NOTE: prefer PYTHONPATH=src over an editable install —
-# `pip install -e .` writes a .pth that the local Python 3.14 venv does not process, so the
-# console script / `python -m` fail to import. conftest.py puts src/ on sys.path for pytest.
+# `pip install -e .` writes a .pth that a Python 3.14 venv does not process, so the
+# console script / `python -m` fail to import (use 3.13 — see Environment).
+# conftest.py puts src/ on sys.path for pytest.
 PYTHONPATH=src .venv/bin/python -m pytest -q
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_parser.py -q     # one file
 .venv/bin/ruff check src tests
@@ -134,10 +151,13 @@ PYTHONPATH=src .venv/bin/python -m coop_sql_review rules
 
 ## Testing against local coop-review-core
 
-The `.venv` holds a **non-editable installed** `coop-review-core` (0.2.0) — edits in
-`~/Developer/coop-review-core` are invisible to this tool until core is re-published and
-reinstalled. **Never `pip install -e` the core (or this repo) into the venv** — editable installs
-are unreliable on the Homebrew Python 3.14 venv (the `.pth` isn't processed). Shadow on
+The `.venv` holds a **non-editable installed** `coop-review-core` (0.2.0) — edits in the
+`coop-review-core` checkout **next to this repo** are invisible to this tool until core is
+re-published and reinstalled. (The coop-* repos are assumed cloned side by side under one parent
+directory — on Aaron's Mac `~/Developer`, which is what `$HOME/Developer` below means; if yours
+differ, pass `CORE_SRC=<path-to-core>/src` to make, or substitute the path in the PYTHONPATH
+commands.) **Never `pip install -e` the core (or this repo) into the venv** — editable installs
+are unreliable on Python 3.14 venvs (the `.pth` isn't processed). Shadow on
 `PYTHONPATH` instead; it's the same idiom the tests already use, with one extra entry in front:
 
 ```bash
@@ -153,7 +173,7 @@ PYTHONPATH="$HOME/Developer/coop-review-core/src:$PWD/src" \
   .venv/bin/python -m coop_sql_review check path/to/sql/
 ```
 
-Verify the shadow took (must print the `~/Developer/coop-review-core` path, NOT site-packages):
+Verify the shadow took (must print a path inside the `coop-review-core` checkout, NOT site-packages):
 
 ```bash
 PYTHONPATH="$HOME/Developer/coop-review-core/src:$PWD/src" \
@@ -225,6 +245,21 @@ Emergency bypass: `git commit --no-verify` — then fix the wiring immediately.)
 **Publishing** is tag-driven: push a `v<version>` tag and `publish.yml` builds, smoke-tests the
 wheel, verifies the tag matches `__version__` (mismatch fails the build), publishes via PyPI
 trusted publishing, and creates the GitHub Release. Human steps in `PUBLISHING.md`.
+
+**Release guardrails** (the tag push IS the publish — treat tags as live ordnance):
+
+- Never create or push a `v*` tag unless Aaron explicitly asked for a release **naming the
+  version** in the current conversation. Never infer a release from a clean working tree, a
+  version bump you notice, or green CI — real incident (2026-07-02): an agent cut a spurious
+  empty release off a "clean tree" signal while another agent shared the same tree.
+- Never move, delete, or reuse an existing `v*` tag — PyPI refuses re-uploads of a version; a
+  botched release means the next patch number.
+- Suite ordering: `coop-review-core` releases **first**, then this tool (its pyproject pins
+  `coop-review-core>=...`). A suite release is **not done** until the `coop-website` repo is
+  synced + pushed — `versions.json` updated first, then both of its check scripts print `PASS`
+  (procedure: coop-website's `AGENTS.md`, "Release-time procedure").
+- Verify after tagging: the `Publish to PyPI` workflow run is green (repo → Actions tab) and
+  `python -m pip index versions coop-sql-review` (networked) lists the new version.
 
 ## Architecture
 

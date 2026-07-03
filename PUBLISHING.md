@@ -64,6 +64,16 @@ permissions (`id-token: write`, `environment: pypi`) and uses the official PyPI 
 
 A release is triggered by pushing a **version tag** that starts with `v`.
 
+> **Agents — hard guardrails.** The tag push in step 2 publishes to PyPI immediately. Only cut a
+> release when Aaron has explicitly asked for one **naming the version** in the current
+> conversation. Never infer a release from a clean working tree, a version bump you notice, or
+> green CI (real incident 2026-07-02: a spurious empty release was tagged off a "clean tree"
+> signal while another agent shared the tree). Never move, delete, or reuse an existing `v*` tag.
+> Suite ordering: `coop-review-core` is released **first** (this repo pins
+> `coop-review-core>=...`), and a suite release is **not done** until the `coop-website` repo is
+> synced + pushed — `versions.json` first, then both of its check scripts `PASS` (procedure:
+> coop-website's `AGENTS.md`, "Release-time procedure").
+
 1. **Bump the version in ONE place** — `src/coop_sql_review/__init__.py`:
    - `src/coop_sql_review/__init__.py` → `__version__ = "0.1.1"`
 
@@ -92,6 +102,13 @@ A release is triggered by pushing a **version tag** that starts with `v`.
    tab. Within a couple of minutes the new version is live at
    https://pypi.org/project/coop-sql-review/.
 
+4. **Verify — both must be true before calling the release done:**
+   - the `Publish to PyPI` workflow run shows a green check on the Actions tab
+     (`gh run list --workflow=publish.yml --limit 1` shows `completed  success`);
+   - `python -m pip index versions coop-sql-review` lists the new version (or the PyPI page
+     shows it). If the workflow failed, **do not delete or re-push the tag** — fix the cause,
+     bump to the next patch version, and release that instead.
+
 > **PyPI version numbers are permanent.** You can't re-upload or reuse a number (even after
 > deleting it). If a release is bad, bump to the next number and publish again.
 
@@ -119,5 +136,7 @@ coop-sql-review update
 | Cut release `vX.Y.Z` | bump version in `src/coop_sql_review/__init__.py` → commit → `git tag vX.Y.Z && git push origin vX.Y.Z` |
 | Check what published | https://pypi.org/project/coop-sql-review/ |
 
-Before any release, make sure `ruff check src tests`, `ruff format --check src tests`, and
-`pytest` are all green locally — CI enforces the same.
+Before any release, make sure `make lint`, `make test`, and `make release-check` are all green
+locally (expect `release-check: OK`; raw commands: `.venv/bin/ruff check src tests`,
+`.venv/bin/ruff format --check src tests`, `PYTHONPATH=src .venv/bin/python -m pytest -q`) — CI
+enforces the same.
