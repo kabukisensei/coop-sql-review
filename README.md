@@ -119,6 +119,11 @@ A typical report looks like this:
 - **Diagnostics** (a separate section, if shown) are *processing* notes — e.g. "this statement
   uses syntax we couldn't fully read." They tell you where the tool's checking may be incomplete,
   so nothing fails silently.
+  - A **`syntax_error`** diagnostic (severity **error**) means the SQL is *genuinely invalid* — a
+    real T-SQL parser rejects it, so it would fail Fabric's import ("Incorrect syntax near …").
+    It names the exact line. This is the tool's pre-push safety net for a mangled edit (a `CASE …
+    ELSE END` with no value, a `WITH` chain broken by a bad find-and-replace). If you ever hit a
+    false alarm on SQL you know is valid, see §7 (the `syntax_errors` knob) and §9 (`ignore syntax`).
 - **Agent review** — a few checks (like "is this MERGE the right choice?") need human/agent
   judgment, so they're listed separately rather than flagged as pass/fail.
 
@@ -176,7 +181,7 @@ coop-sql-review check sql-folder --html review.html --md review.md
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
 | `--config <rules.yml>` | Turn rules on/off, change their severity, or list ignored findings (see §7). A `rules.yml` in the current folder is picked up automatically, so `--config` is optional. (A `--config` path that doesn't exist is an error, so a typo can't silently drop your overrides.) |
 | `--log-file <file>` | Also write the diagnostics (parse problems, errors) to a file. |
-| `--strict` | Exit with an error code if any finding **at or above `--min-severity`** remains — for CI gates (see §6). Also fails when **no `.sql` files were checked at all**, so a typo'd path can't pass silently. |
+| `--strict` | Exit with an error code if any finding **at or above `--min-severity`** remains — for CI gates (see §6). Also fails on a **real syntax error** (or any other error-level diagnostic, e.g. an unreadable file) and when **no `.sql` files were checked at all**, so a typo'd path or a broken file can't pass silently. |
 | `--dialect <name>` | SQL dialect to parse (default `tsql`, which fits Fabric). |
 
 Run `coop-sql-review rules` any time to see the current full list of checks.
@@ -187,8 +192,9 @@ Run `coop-sql-review rules` any time to see the current full list of checks.
 
 By default the tool **never fails a build** (it's advisory). If a team *wants* a gate, add
 `--strict` with a severity floor — it then exits with an error code when something at/above that
-level is found, **or when no `.sql` files were found/checked at all** (so a typo'd folder path
-fails the gate instead of passing as “clean”):
+level is found, when a **real syntax error** is detected (invalid SQL that would fail Fabric's
+import), **or when no `.sql` files were found/checked at all** (so a typo'd folder path fails the
+gate instead of passing as “clean”):
 
 ```
 coop-sql-review check sql-folder --strict --min-severity warning
@@ -234,6 +240,18 @@ styles — turn any on in `rules.yml` (as above) if your team follows that conve
 
 Run `coop-sql-review rules` to see which rules are off by default (marked `[off by default]`).
 
+**Real syntax errors** (invalid SQL a T-SQL parser rejects) are reported as `error`-level
+diagnostics by default. If your estate uses valid T-SQL the underlying parser can't handle and you
+get a false alarm, dial it down with a top-level `syntax_errors:` key in `rules.yml`:
+
+```yaml
+syntax_errors: warning   # error (default) | warning (demote but keep) | off (hide)
+```
+
+`warning` still shows the line in the report and JSON (just not as an error, so it won't fail
+`--strict`); `off` hides it entirely. To silence a single spot instead, use the inline
+`ignore syntax` comment in §9.
+
 To check against the team's canonical standards file directly:
 ```
 coop-sql-review check sql-folder --standards path/to/sql-standards.md
@@ -269,7 +287,12 @@ construct isn't re-raised on every run:
   SELECT * FROM dbo.legacy_view;
   ```
   List several rule ids (`ignore SQL-A, SQL-B`), or a bare `ignore` / `*` to silence every rule on
-  that line. The `reason:` text is for humans; the parser ignores it.
+  that line. The `reason:` text is for humans; the parser ignores it. To silence a **real syntax
+  error** on a line you know is fine (a parser false alarm), use the keyword `syntax`:
+  ```sql
+  -- coop-sql-review:ignore syntax reason: valid T-SQL the parser can't read
+  SET @rows += 1;
+  ```
 - **Baseline (ratchet)** — record today's findings and agent-review items, then surface only *new* ones:
   ```sh
   coop-sql-review check sql-folder --write-baseline sql-baseline.json   # once, to capture the status quo

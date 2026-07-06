@@ -52,10 +52,19 @@ SCHEMA_VERSION = 2
 
 
 def _verdict(result: Result) -> dict:
-    """A compact, advisory machine verdict the agent can route on (never a gate)."""
+    """A compact, advisory machine verdict the agent can route on (never a gate).
+
+    An error-severity diagnostic (a genuine syntax error, a rule crash, an
+    unreadable file) makes the run **not clean** even with zero findings — the
+    tool's coverage of that file is compromised, which the agent must not read as
+    a clean pass. It is also the most severe signal the tool can emit, so it sets
+    ``highest_severity`` to ``error``.
+    """
     summary = result.summary()
     present = [s for s in SEVERITIES if summary[s]]
-    return {"clean": not result.findings, "highest_severity": present[0] if present else None}
+    has_error_diagnostic = any(d.severity == "error" for d in result.diagnostics)
+    highest = "error" if has_error_diagnostic else (present[0] if present else None)
+    return {"clean": not result.findings and not has_error_diagnostic, "highest_severity": highest}
 
 
 def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:

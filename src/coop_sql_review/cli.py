@@ -15,6 +15,7 @@ import codecs
 import logging
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import click
@@ -27,6 +28,7 @@ from coop_sql_review.diagnostics import (
     FILE_UNREADABLE,
     IGNORE_STALE,
     SCAN_EMPTY,
+    SYNTAX_ERROR,
     Diagnostic,
 )
 from coop_sql_review.engine import run_rules
@@ -38,8 +40,10 @@ from coop_sql_review.rules import all_rules
 from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.suppressions import (
     is_inline_suppressed,
+    is_syntax_ignored,
     load_baseline,
     scan_directives,
+    scan_syntax_ignores,
     write_baseline,
 )
 from coop_sql_review.standards import (
@@ -218,17 +222,28 @@ def _config_write_path(config_path: str | None) -> Path:
     return Path(config_path) if config_path else Path.cwd() / "rules.yml"
 
 
-def _load_rule_config(path: Path) -> RuleConfig:
-    """``RuleConfig.load`` under the CLI's friendly-error contract.
+# The rules.yml `syntax_errors:` knob values (§3.4 of the syntax-errors plan):
+# how to treat a genuine T-SQL syntax error — report as `error` (default), keep
+# it visible but demote to `warning`, or drop it entirely (`off`).
+_SYNTAX_ERROR_MODES = ("error", "warning", "off")
+
+
+def _load_rule_config(path: Path) -> tuple[RuleConfig, str]:
+    """``RuleConfig.load`` (plus the ``syntax_errors`` knob) under the CLI's
+    friendly-error contract.
+
+    Returns ``(config, syntax_errors_mode)`` where the mode is one of
+    ``error``/``warning``/``off`` (default ``error``).
 
     rules.yml is a hand-edited file (and auto-discovered from the cwd), so any
-    problem in it — bad YAML, wrong shape, an unknown severity, a wrong encoding
-    — must become a one-line usage error (exit 2) naming the file, never a
-    traceback. A path that simply doesn't exist loads as the empty config; the
-    explicit ``--config``-typo case is rejected earlier, in ``check``.
+    problem in it — bad YAML, wrong shape, an unknown severity or ``syntax_errors``
+    value, a wrong encoding — must become a one-line usage error (exit 2) naming
+    the file, never a traceback. A path that simply doesn't exist loads as the
+    empty config; the explicit ``--config``-typo case is rejected earlier, in
+    ``check``.
     """
     if not path.is_file():
-        return RuleConfig()
+        return RuleConfig(), "error"
 
     def _bad(problem: str) -> click.UsageError:
         return click.UsageError(f"could not load config {path}: {problem}")
@@ -248,14 +263,53 @@ def _load_rule_config(path: Path) -> RuleConfig:
         raise _bad("the top level must be a mapping (e.g. a `rules:` section)")
     if isinstance(data, dict) and data.get("rules") is not None and not isinstance(data["rules"], dict):
         raise _bad("`rules:` must be a mapping of rule ids to settings, not a list")
+    syntax_mode = "error"
+    if isinstance(data, dict) and data.get("syntax_errors") is not None:
+        raw = data["syntax_errors"]
+        # YAML 1.1 coerces a bare `off`/`no` to the boolean False (and
+        # `on`/`yes`/`true` to True), so `syntax_errors: off` arrives as False.
+        # Map the falsy form to the intended "off" mode so it works unquoted;
+        # the truthy form has no matching mode and is rejected below.
+        candidate = "off" if raw is False else str(raw).strip().lower()
+        if candidate not in _SYNTAX_ERROR_MODES:
+            raise _bad(f"`syntax_errors` must be one of {', '.join(_SYNTAX_ERROR_MODES)} (got '{raw}')")
+        syntax_mode = candidate
     try:
-        return RuleConfig.load(path)
+        return RuleConfig.load(path), syntax_mode
     except StandardsError as exc:
         raise _bad(str(exc)) from exc
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         # Anything the shape checks above didn't anticipate (e.g. a malformed
         # `ignore:` entry) still surfaces as the same friendly one-liner.
         raise _bad(f"unexpected structure ({exc})") from exc
+
+
+def _apply_syntax_error_policy(
+    diagnostics: list[Diagnostic], mode: str, parsed: list[ParsedFile]
+) -> list[Diagnostic]:
+    """Apply the ``syntax_errors`` knob + inline ``ignore syntax`` to SYNTAX_ERROR
+    diagnostics, leaving every other diagnostic untouched.
+
+    - ``off``: drop all syntax-error diagnostics.
+    - inline ``coop-sql-review:ignore syntax`` on the error's line/line above: drop
+      that one (regardless of the knob).
+    - ``warning``: demote the rest to ``warning`` (still reported).
+    - ``error`` (default): keep as-is.
+    """
+    if mode == "error" and not any(d.category == SYNTAX_ERROR for d in diagnostics):
+        return diagnostics  # fast path: nothing to do
+    ignores = {pf.path: scan_syntax_ignores(pf.text) for pf in parsed}
+    kept: list[Diagnostic] = []
+    for diag in diagnostics:
+        if diag.category != SYNTAX_ERROR:
+            kept.append(diag)
+            continue
+        if mode == "off" or is_syntax_ignored(diag.line, ignores.get(diag.file, set())):
+            continue
+        if mode == "warning" and diag.severity != "warning":
+            diag = replace(diag, severity="warning")
+        kept.append(diag)
+    return kept
 
 
 def _write_extra_report(path: str, content: str, label: str) -> None:
@@ -572,7 +626,7 @@ def check(
     if config_path and not Path(config_path).is_file() and not save_ignores:
         raise click.UsageError(f"config file not found: {config_path}")
     cfg_path = _config_read_path(config_path, std_path)
-    config = _load_rule_config(cfg_path)
+    config, syntax_mode = _load_rule_config(cfg_path)
     rules = apply_config(all_rules(), config)
     unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
 
@@ -640,6 +694,14 @@ def check(
     result.agent_review = [
         a for a in result.agent_review if not is_inline_suppressed(a.rule_id, a.line, inline.get(a.file, {}))
     ]
+
+    # Syntax-error diagnostics (genuinely invalid T-SQL) obey the rules.yml
+    # `syntax_errors` knob and an inline `coop-sql-review:ignore syntax` directive
+    # on the error's line or the line above. `off` (or an inline ignore) removes
+    # the diagnostic; `warning` demotes but keeps it visible; `error` (default)
+    # leaves it. Only `off`/inline removal drops the line — a coverage gap is
+    # never silent otherwise (AGENTS.md error-handling requirement).
+    result.diagnostics = _apply_syntax_error_policy(result.diagnostics, syntax_mode, parsed)
     # The full set of fingerprints this run produced (pre-baseline, pre-ignore) so a
     # stale ignore entry can be told from one another filter already consumed. An
     # entry matching only an agent-review item is NOT stale.
@@ -752,8 +814,11 @@ def check(
         _save_ignores_interactive(result.findings, config_path)
 
     # --strict also fails when NOTHING was checked (files_checked == 0): a
-    # typo'd path in CI must not pass as silently clean.
-    if strict and (result.findings or result.files_checked == 0):
+    # typo'd path in CI must not pass as silently clean; and when any
+    # error-severity diagnostic remains (a genuine syntax error, a rule crash,
+    # or an unreadable file) after the syntax knob/suppression have had their say.
+    has_error_diagnostic = any(d.severity == "error" for d in result.diagnostics)
+    if strict and (result.findings or result.files_checked == 0 or has_error_diagnostic):
         sys.exit(2)
 
 

@@ -5,6 +5,37 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [0.6.0] — 2026-07-06
+### Added
+- **Real T-SQL syntax errors are now reported** — a new `syntax_error` diagnostic category
+  (severity **error**). Two classes of genuinely invalid T-SQL previously passed `check` with
+  **zero** parse diagnostics and only failed downstream in Fabric's import (`DmsImportDatabaseException`,
+  "Incorrect syntax near 'END'"): a `CASE ... ELSE END` branch with no value, and a mangled `WITH`
+  chain (a derived-table alias / `WHERE` left dangling outside a CTE's closing paren). The parser
+  now parses each batch at sqlglot's `RAISE` level first (it already detected these — the tool was
+  discarding the signal), records one diagnostic per structured error with its exact line, then
+  re-parses tolerantly so partial analysis of the valid parts is unchanged.
+- **`rules.yml` `syntax_errors:` knob** — `error` (default), `warning` (demote but keep visible),
+  or `off` (drop). A downgraded syntax error still appears in the JSON `diagnostics` (only `off`
+  removes it), so a coverage gap is never silent.
+- **Inline `-- coop-sql-review:ignore syntax`** — silences a single syntax error on its line or the
+  line above (a bare/`*` wildcard ignore covers it too); a rule-scoped ignore does not.
+### Changed
+- **`--strict` now also exits 2 on any error-severity diagnostic** (a real syntax error, a rule
+  crash, or an unreadable file) that remains after the `syntax_errors` knob and suppressions —
+  not only on findings and zero-file scans. The default exit code is still **0** (advisory).
+- **The JSON `verdict` reflects error diagnostics**: `clean` is `false` (and `highest_severity` is
+  `error`) when an error-severity diagnostic is present, even with zero findings — so the analytics
+  agent never reads a file the parser rejected as a clean pass. `schema_version` is **unchanged**
+  (additive — the `syntax_error` category and error-severity diagnostics fit the existing shape).
+- **Known sqlglot false-positives on valid T-SQL degrade instead of erroring.** sqlglot's tsql
+  dialect is not a complete T-SQL grammar; it raises on some *valid* constructs. Those are reported
+  as `parse_degraded` **warnings**, not `syntax_error`: T-SQL compound assignment (`SET @v += x`),
+  a `CLUSTERED`/`NONCLUSTERED` key or index constraint (`PRIMARY KEY CLUSTERED (col ASC)`), and
+  procedure/function bodies sqlglot can only partially parse. The whole current fabric-dw estate
+  (453 `.sql` files) reports **zero** `syntax_error` diagnostics; the real 2026-07-06 incident
+  (a mangled CTE inside `silver.factTaskKPIs`) is still caught. See `AGENTS.md` "sqlglot caveat".
+
 ## [0.5.0] — 2026-07-01
 ### Changed
 - **BREAKING (one-time): finding fingerprints no longer include the file path** —
@@ -188,6 +219,9 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.6.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.6.0
+[0.5.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.5.0
+[0.4.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.4.0
 [0.3.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.3.0
 [0.2.5]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.2.5

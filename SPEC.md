@@ -50,8 +50,9 @@ coop-sql-review upgrade                # prints the command to update; never sel
 coop-sql-review --version
 ```
 - Default exit code **0** (advisory). `--strict` exits **2** when any reported finding remains
-  (after the `--min-severity` filter) — or when **zero files were checked** (typo'd path) — for
-  teams who *opt in* to a CI gate. Default non-blocking.
+  (after the `--min-severity` filter), when any **error-severity diagnostic** remains (a real
+  `syntax_error`, a rule crash, an unreadable file), or when **zero files were checked** (typo'd
+  path) — for teams who *opt in* to a CI gate. Default non-blocking.
 - `--standards` points at the canonical file (e.g. the company standards repo's
   `sql-standards.md`); the bundled `docs/standards.md` is the default/fallback.
 - The default text report is a sectioned terminal report (banner, one section per file with
@@ -79,6 +80,7 @@ coop-sql-review --version
     {"rule_id":"SQL-UPSERT-CHOICE","file":"...","line":20,"object":"...","note":"MERGE detected — judge appropriateness per §5","standard_ref":"§5"}
   ],
   "diagnostics": [
+    {"severity":"error","category":"syntax_error","file":"...","line":12,"message":"syntax error: column does not support CTE (col 5)","rule_id":""},
     {"severity":"warning","category":"parse_failed","file":"...","line":0,"message":"...","rule_id":""}
   ]
 }
@@ -86,7 +88,13 @@ coop-sql-review --version
 The agent consumes `findings` directly and reasons about `agent_review` items using the prose
 standards. Same two-audience pattern as coop-data-doc (machine + human). The `fingerprint` is the
 stable suppression key: schema v2 hashes `(rule_id, object, message/note)` only — no file path, no
-line — so baselines and `rules.yml` ignore lists survive cwd/machine changes.
+line — so baselines and `rules.yml` ignore lists survive cwd/machine changes. A diagnostic may
+carry severity **`error`** — notably the `syntax_error` category (genuinely invalid T-SQL a real
+parser rejects) — which sets `verdict.clean=false` and `verdict.highest_severity="error"` even with
+zero findings, so a file the parser rejected is never read as a clean pass. `schema_version` stays
+**2**: the category and error-severity diagnostics are additive, not a shape change. The `rules.yml`
+`syntax_errors: error|warning|off` knob and an inline `coop-sql-review:ignore syntax` directive
+adjust or suppress syntax diagnostics (a demoted one still appears; only `off` removes it).
 
 ## Build milestones
 - **M0** — scaffold from the playbook (package, CLI stub, ci, publish, upgrade, ruff).

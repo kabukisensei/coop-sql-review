@@ -14,9 +14,11 @@ the masking + line-aware splitting are new, for rule line reporting.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.errors import ParseError
 
 from coop_sql_review.identifiers import normalize_identifier
 
@@ -44,6 +46,147 @@ def parse_batch(batch: str, dialect: str = "tsql") -> list[exp.Expression]:
     except Exception:
         return []
     return [expression for expression in parsed if expression is not None]
+
+
+@dataclass(frozen=True)
+class SyntaxIssue:
+    """One parser-level syntax error inside a batch.
+
+    ``line``/``col`` are 1-based and **relative to the batch** (the caller adds
+    the batch's file start line). ``message`` is the sqlglot error's structured
+    ``description``, squeezed to a single ASCII line — never sqlglot's rendered
+    message, which embeds a SQL snippet with ANSI underline escapes (would break
+    the deterministic, cp1252-safe output contract).
+    """
+
+    line: int
+    col: int
+    message: str
+
+
+def _issue_from_error(entry: dict) -> SyntaxIssue:
+    """Build a :class:`SyntaxIssue` from one entry of ``ParseError.errors``.
+
+    Uses only the structured ``description``/``line``/``col`` keys. The
+    description is collapsed to one line and forced to ASCII (replacement char
+    for any stray non-ASCII), so the resulting diagnostic is deterministic and
+    safe on a legacy Windows console.
+    """
+    raw = entry.get("description") or "invalid SQL syntax"
+    message = " ".join(str(raw).split()).encode("ascii", "replace").decode("ascii")
+    line = entry.get("line")
+    col = entry.get("col")
+    return SyntaxIssue(
+        line=line if isinstance(line, int) and line > 0 else 1,
+        col=col if isinstance(col, int) and col > 0 else 1,
+        message=message or "invalid SQL syntax",
+    )
+
+
+# sqlglot's generic "I hit a token I didn't expect" message. It shows up on both
+# genuinely broken SQL (usually alongside a definitive error, or with an
+# un-representable statement -> a None in the IGNORE recovery) and on a handful
+# of *valid* T-SQL constructs its tsql grammar can't parse. Only the latter,
+# None-free, definitive-error-free case is treated as a gap (see _is_sqlglot_gap).
+_GENERIC_PARSE_ERROR = "Invalid expression / Unexpected token"
+
+# A T-SQL compound-assignment statement (`SET @v += x`, and -=, *=, /=, %=, &=,
+# |=, ^=). Valid T-SQL that sqlglot's tsql dialect cannot parse — it raises a
+# "Required keyword: 'this' missing for ..." on the operator. Matched on the
+# masked batch so a match inside a string/comment can't fire.
+_COMPOUND_ASSIGN_RE = re.compile(r"\bSET\b\s+@\w+\s*[-+*/%&|^]=", re.IGNORECASE)
+
+# A CLUSTERED / NONCLUSTERED index or key constraint (`PRIMARY KEY CLUSTERED
+# (col ASC)`). Valid T-SQL that sqlglot's tsql dialect mis-parses — it raises
+# "Expecting )" and a "'buckets' missing" (ClusteredByProperty) on the sort spec.
+_CLUSTERED_INDEX_RE = re.compile(r"\b(?:NON)?CLUSTERED\b", re.IGNORECASE)
+
+
+def _description_is_gap(description: str, has_compound_assign: bool, has_clustered_index: bool) -> bool:
+    """Whether one sqlglot error description is a known gap on *valid* T-SQL,
+    given what constructs the batch actually contains."""
+    if description == _GENERIC_PARSE_ERROR:
+        # Generic "unexpected token": the had_none guard in _is_sqlglot_gap has
+        # already excluded its common genuinely-broken forms.
+        return True
+    if has_compound_assign and description.startswith("Required keyword: 'this' missing"):
+        return True  # compound-assignment operator (SET @v += x)
+    if has_clustered_index and (description == "Expecting )" or "'buckets' missing" in description):
+        return True  # CLUSTERED / NONCLUSTERED index or key constraint
+    return False
+
+
+def _is_sqlglot_gap(masked_batch: str, descriptions: list[str], had_none: bool) -> bool:
+    """Whether a RAISE-level ``ParseError`` is a **sqlglot grammar gap on valid
+    T-SQL** (to be reported as a ``parse_degraded`` warning) rather than genuinely
+    invalid syntax (a ``syntax_error``).
+
+    Conservative — genuine breakage wins every tie. A batch is a gap only when
+    NONE of the genuine-breakage signals is present:
+
+    - ``had_none``: sqlglot couldn't build even an opaque node for some statement
+      (the strongest "this is broken" signal), or
+    - any error description that is *definitive* of malformed SQL — i.e. one that
+      :func:`_description_is_gap` does not explain as a known gap on valid T-SQL.
+
+    The known gaps (see ``AGENTS.md`` "sqlglot caveat") are: the generic
+    ``Invalid expression / Unexpected token`` (after the ``had_none`` guard), the
+    ``Required keyword: 'this' missing`` on a compound assignment (``SET @v += x``),
+    and the ``Expecting )`` / ``'buckets' missing`` on a ``CLUSTERED`` key/index.
+    Because the estate's real incident (a mangled CTE inside a stored proc) also
+    raises ``column does not support CTE`` — a definitive description — it is never
+    mistaken for a gap even though it, like the valid procs, recovers to an opaque
+    ``Command``. And a *misclassified* real error is still surfaced (as a
+    ``parse_degraded`` warning), so a coverage gap is never silent.
+    """
+    if had_none or not descriptions:
+        return False
+    has_compound_assign = _COMPOUND_ASSIGN_RE.search(masked_batch) is not None
+    has_clustered_index = _CLUSTERED_INDEX_RE.search(masked_batch) is not None
+    return all(
+        _description_is_gap(description, has_compound_assign, has_clustered_index)
+        for description in descriptions
+    )
+
+
+def parse_batch_strict(
+    batch: str, dialect: str = "tsql"
+) -> tuple[list[exp.Expression], list[SyntaxIssue], bool]:
+    """Parse a batch, returning ``(expressions, syntax_issues, is_gap)``.
+
+    Fast path: parse once at ``RAISE``. Valid T-SQL — including syntax sqlglot
+    only *degrades* to an opaque ``Command`` (``ALTER COLUMN ... NOT NULL``),
+    which does **not** raise — returns its expressions, no issues, ``is_gap=False``.
+
+    On a real ``ParseError``, record one :class:`SyntaxIssue` per structured
+    error and re-parse at ``IGNORE`` to recover the partial AST so rules still see
+    the parts that parsed (the tool's partial-analysis promise). ``is_gap`` says
+    whether the error is a known sqlglot grammar gap on *valid* T-SQL (see
+    :func:`_is_sqlglot_gap`) — the caller reports a gap as a ``parse_degraded``
+    warning and a non-gap as a ``syntax_error``. A ``ParseError`` with no
+    structured errors still yields one belt-and-braces issue, so genuinely broken
+    SQL can never pass as clean. Any other sqlglot failure (e.g. a tokenizer
+    error) falls back to the tolerant ``IGNORE`` parse with no issues.
+    """
+    try:
+        parsed = sqlglot.parse(batch, read=dialect, error_level=sqlglot.ErrorLevel.RAISE)
+        return ([expression for expression in parsed if expression is not None], [], False)
+    except ParseError as error:
+        try:
+            raw = sqlglot.parse(batch, read=dialect, error_level=sqlglot.ErrorLevel.IGNORE)
+        except Exception:
+            raw = []
+        recovered = [expression for expression in raw if expression is not None]
+        had_none = any(expression is None for expression in raw)
+        entries = error.errors or []
+        issues = [_issue_from_error(entry) for entry in entries] or [
+            SyntaxIssue(line=1, col=1, message="invalid SQL syntax")
+        ]
+        descriptions = [str(entry.get("description") or "") for entry in entries]
+        is_gap = _is_sqlglot_gap(mask_noncode(batch), descriptions, had_none)
+        return (recovered, issues, is_gap)
+    except Exception:
+        return (parse_batch(batch, dialect), [], False)
 
 
 def ident_token_end(sql: str, i: int) -> int:

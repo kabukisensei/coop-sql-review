@@ -19,6 +19,7 @@ from typing import Optional
 from sqlglot import exp
 
 from coop_sql_review.diagnostics import Diagnostic
+from coop_sql_review.sql_common import SyntaxIssue
 
 LAYERS = ("bronze", "silver", "gold")
 
@@ -91,6 +92,8 @@ class Batch:
     sql: str
     start_line: int
     expressions: list[exp.Expression] = field(default_factory=list)
+    syntax_issues: list[SyntaxIssue] = field(default_factory=list)  # invalid-syntax errors
+    syntax_gap: bool = False  # the errors are a sqlglot gap on valid T-SQL (report as degraded)
 
 
 @dataclass

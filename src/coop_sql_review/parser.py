@@ -13,14 +13,14 @@ import re
 
 from sqlglot import exp
 
-from coop_sql_review.diagnostics import PARSE_DEGRADED, PARSE_FAILED, Diagnostic
+from coop_sql_review.diagnostics import PARSE_DEGRADED, PARSE_FAILED, SYNTAX_ERROR, Diagnostic
 from coop_sql_review.identifiers import original_name
 from coop_sql_review.sql_common import (
     ident_token_end,
     is_temp_table,
     line_starts,
     mask_noncode,
-    parse_batch,
+    parse_batch_strict,
     split_batches_with_lines,
     strip_bom,
     table_parts,
@@ -186,11 +186,14 @@ def parse_sql(path: str, text: str, dialect: str = "tsql") -> ParsedFile:
         _line_offsets=line_starts(text),
     )
     for index, (batch_sql, start_line) in enumerate(split_batches_with_lines(text)):
+        expressions, syntax_issues, syntax_gap = parse_batch_strict(batch_sql, dialect)
         batch = Batch(
             index=index,
             sql=batch_sql,
             start_line=start_line,
-            expressions=parse_batch(batch_sql, dialect),
+            expressions=expressions,
+            syntax_issues=syntax_issues,
+            syntax_gap=syntax_gap,
         )
         parsed.batches.append(batch)
         _record_parse_diagnostics(parsed, batch)
@@ -204,10 +207,45 @@ def parse_sql(path: str, text: str, dialect: str = "tsql") -> ParsedFile:
 def _record_parse_diagnostics(parsed: ParsedFile, batch: Batch) -> None:
     """Note where analysis was degraded so coverage gaps aren't silent.
 
-    A non-empty batch sqlglot couldn't parse at all, or a statement it could
-    only represent as an opaque ``Command`` (unsupported T-SQL syntax), means
-    rules can't see inside that region — the user should know.
+    A batch a real T-SQL parser rejects as invalid syntax (one error per issue),
+    a valid-but-unsupported construct sqlglot can't parse (a grammar gap), a
+    non-empty batch sqlglot couldn't parse at all, or a statement it could only
+    represent as an opaque ``Command`` (unsupported T-SQL syntax) — each means
+    rules can't see inside that region, and the user should know.
     """
+    if batch.syntax_gap:
+        # A sqlglot grammar gap on VALID T-SQL (compound assignment, a proc/
+        # function body it can't fully parse): report the coverage gap as a
+        # warning at the first flagged line — not a syntax error — so working
+        # estate SQL is never reported as broken, while the gap stays visible.
+        issues = sorted(batch.syntax_issues, key=lambda i: (i.line, i.col))
+        line = batch.start_line - 1 + issues[0].line if issues else batch.start_line
+        parsed.diagnostics.append(
+            Diagnostic(
+                severity="warning",
+                category=PARSE_DEGRADED,
+                file=parsed.path,
+                line=line,
+                message=(
+                    "valid but unsupported T-SQL syntax here — sqlglot could not fully parse it, "
+                    "so rules may under-report in this batch."
+                ),
+            )
+        )
+        return
+    # Real invalid syntax first: severity "error" (the rules.yml `syntax_errors`
+    # knob and inline `ignore syntax` are applied at the CLI edge, keeping this
+    # function pure). Sorted by (line, col) for deterministic output.
+    for issue in sorted(batch.syntax_issues, key=lambda i: (i.line, i.col)):
+        parsed.diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category=SYNTAX_ERROR,
+                file=parsed.path,
+                line=batch.start_line - 1 + issue.line,
+                message=f"syntax error: {issue.message} (col {issue.col})",
+            )
+        )
     if batch.sql.strip() and not batch.expressions:
         parsed.diagnostics.append(
             Diagnostic(

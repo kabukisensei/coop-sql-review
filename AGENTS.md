@@ -11,8 +11,9 @@ estate. It parses `.sql` files and reports anything that doesn't match `docs/sta
 Two non-negotiable invariants shape every design decision:
 
 - **Advisory, never blocking** — it reports; it never edits, rejects, or stops anything. Exit
-  code is always `0` unless the caller opts into `--strict` (then exit `2` when findings remain
-  — or when **zero files were checked**, so a typo'd path can't pass CI as "clean"). CLI input
+  code is always `0` unless the caller opts into `--strict` (then exit `2` when findings remain,
+  when **any error-severity diagnostic** remains — a real syntax error, a rule crash, an unreadable
+  file — or when **zero files were checked**, so a typo'd path can't pass CI as "clean"). CLI input
   errors (missing/malformed `--config`, bad flags) are friendly one-line usage errors, exit `2`;
   unwritable output sinks (`-o`, `--html`/`--md`, `--log-file`, `--write-baseline`) raise a
   one-line `ClickException`, exit `1`.
@@ -60,7 +61,8 @@ Verified in `cli.py` — this is what happens when an agent, cron job, or CI pip
 - **The written report path is echoed to stderr unconditionally** (not TTY-gated), so a piped run
   can find the file. Parse stderr for it, or better: pass `-o <known-path>`.
 - **Exit codes:** always `0` (advisory), unless `--strict` (findings at/above `--min-severity`,
-  or zero files checked → `2`), usage errors → `2`, unwritable output sink → `1`.
+  any remaining error-severity diagnostic — e.g. a `syntax_error` — or zero files checked → `2`),
+  usage errors → `2`, unwritable output sink → `1`.
 
 **Config discovery:** `cli._config_read_path` reads `rules.yml` from `--config` if given, else a
 `rules.yml` in the **current directory** (so save-an-ignore-then-re-run works with no flags), else
@@ -197,7 +199,10 @@ Release order is core-first: publish `coop-review-core`, then this tool (`pyproj
 nullability. The cap is one below the next major past the verified one (30.x; check the exact
 patch with `.venv/bin/pip show sqlglot`) to avoid silent breaks: parser output shifts between
 sqlglot majors, and the rules and `parse_degraded` diagnostics are tuned to 30.x behavior (e.g.
-`ALTER COLUMN ... NOT NULL` degrading to an opaque `exp.Command`). To upgrade: raise the cap by
+`ALTER COLUMN ... NOT NULL` degrading to an opaque `exp.Command`). The `RAISE`-level `syntax_error`
+detection and the `_is_sqlglot_gap` classifier were verified on **30.12.0** and re-run green on the
+**26.33.0** floor (identical fixture lines/categories), so the pin range stands; if you change the
+classifier, re-run `tests/test_syntax_errors.py` on both ends of the pin before widening it. To upgrade: raise the cap by
 one major, run the full suite (`make test`) and `make lint`, and fix any rule whose AST shapes
 moved before widening further. Upgrades are **on-demand, not scheduled**: raise the cap only when
 (a) a rule or parser fix needs something from a newer sqlglot, (b) a security advisory lands
@@ -282,9 +287,15 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
   GO-batch's file start line) and `mask_noncode` (blanks comment/string content while preserving
   every character offset and newline, so regex rules scan code only and still map to exact lines).
 - **`sql_model.py` / `parser.py`** — `parse_sql()` → `ParsedFile` holding batches+AST, comments,
-  extracted `SqlObject`s (with typed `ColumnDef`s), and diagnostics.
+  extracted `SqlObject`s (with typed `ColumnDef`s), and diagnostics. Each batch is parsed via
+  `sql_common.parse_batch_strict` (sqlglot at `RAISE` first to catch genuine syntax errors, then a
+  tolerant `IGNORE` re-parse for partial analysis); `_record_parse_diagnostics` turns real errors
+  into `syntax_error` diagnostics and known sqlglot grammar-gaps on valid T-SQL into
+  `parse_degraded` warnings (see the sqlglot caveat below).
 - **`finding.py` / `diagnostics.py`** — `Finding` (a standards deviation) vs `Diagnostic` (a
-  *processing* problem: parse failure, opaque-command degradation, rule crash, unreadable file).
+  *processing* problem: **real syntax error** (`syntax_error`, severity `error`), parse failure,
+  opaque-command/grammar-gap degradation, rule crash, unreadable file). The `syntax_error` category
+  is tool-local (core treats categories as open strings, like `scan_empty`).
 - **`rules/`** — each rule is `sql_<name>.py` exporting `RULE = Rule(...)`; `rules/__init__.all_rules()`
   auto-discovers every `sql_*.py`. `rules/base.py` has `Rule` + `RuleContext`; `rules/helpers.py`
   has shared helpers (`enclosing_object`, `dml_target`, `projection_stars`) — neither is a rule
@@ -329,12 +340,43 @@ use a regex over `ParsedFile.masked` + `line_of_offset()` (the "text" method).
 `ALTER COLUMN ... NOT NULL` and exotic type syntax. `SQL-NO-ALTER-COLUMN` is therefore text-based,
 and `parser.py` emits a `parse_degraded` diagnostic so the coverage gap is never silent.
 
+**sqlglot caveat — syntax errors vs grammar gaps (`syntax_error` detection).** Parsing at
+`ErrorLevel.RAISE` catches genuinely invalid T-SQL (the 2026-07-06 escapes: a `CASE … ELSE END`
+with no value → `Expected END after CASE`; a mangled `WITH` → `column does not support CTE`), but
+sqlglot's tsql dialect is **not** a complete T-SQL grammar and also raises on some *valid*
+constructs. `sql_common._is_sqlglot_gap` decides real-error vs gap **conservatively — genuine
+breakage wins every tie** (a batch is a gap only when there is no un-representable statement, i.e.
+no `None` in the tolerant recovery, *and* every error description is a known gap). Real errors
+become `syntax_error` (severity `error`); known gaps become `parse_degraded` (severity `warning`),
+so working estate SQL is never reported as broken and a misclassified real error is still surfaced
+(as a warning) — never silent. The known valid-T-SQL gaps found on the fabric-dw estate
+(2026-07-06, sqlglot 30.12.0), each recorded with its signature in `_description_is_gap`:
+- **Compound assignment** — `SET @v += x` (and `-= *= /= %= &= |= ^=`) → `Required keyword: 'this'
+  missing for …EQ/Neg…`. Detected by the `SET @v <op>=` construct in the batch.
+- **`CLUSTERED`/`NONCLUSTERED` key or index** — `PRIMARY KEY CLUSTERED ([col] ASC)` → `Expecting )`
+  + `'buckets' missing for …ClusteredByProperty`. Detected by the `CLUSTERED` keyword in the batch.
+- **Procedure/function bodies** sqlglot can only partially parse — a lone generic
+  `Invalid expression / Unexpected token` with no `None` in recovery (e.g. `SET NOCOUNT ON;` before
+  a trailing `UPDATE … END`). The mangled-CTE-in-a-proc incident (`silver.factTaskKPIs`) is **not**
+  a gap: it raises the definitive `column does not support CTE` alongside the generic message.
+
+When a new estate false-positive appears (a valid construct reported as `syntax_error`), reproduce
+it minimally, add a precise signature to `_description_is_gap` (or the operator/keyword regexes),
+and record it here. The escape hatches for one-off cases: the `rules.yml` `syntax_errors:
+error|warning|off` knob (global) and an inline `-- coop-sql-review:ignore syntax` directive (one
+line). Re-validate the whole estate (§ below) after any change to the classifier.
+
 ## Error handling (project requirement)
 
-Never swallow errors. Parse failures, opaque-command degradations, and rule crashes become
-`Diagnostic`s that are shown in the console report AND the JSON (`"diagnostics"` key) on every
-run, and can be captured with `check --log-file <path>`. Keep messages specific and actionable
-(file:line + what happened + what it means) so the user can fix the cause.
+Never swallow errors. Real syntax errors (`syntax_error`, severity `error`), parse failures,
+opaque-command/grammar-gap degradations, and rule crashes become `Diagnostic`s that are shown in
+the console report AND the JSON (`"diagnostics"` key) on every run, and can be captured with
+`check --log-file <path>`. Keep messages specific and actionable (file:line + what happened + what
+it means) so the user can fix the cause. Syntax-error diagnostic messages are **ASCII-only and
+single-line** (they use sqlglot's structured `description`/`line`/`col`, never its rendered message
+with ANSI underlines and a SQL snippet) so JSON stays deterministic and the console stays
+cp1252-safe. A `syntax_error` demoted by `syntax_errors: warning` or `ignore syntax` must still be
+visible in JSON unless set to `off` — a coverage gap is never silent.
 
 ## Windows compatibility (coworkers run this on Windows — keep it working)
 

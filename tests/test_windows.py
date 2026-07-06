@@ -112,3 +112,31 @@ def test_invalid_utf8_bytes_yield_diagnostic_and_still_lint(tmp_path):
     assert any(
         d["category"] == "file_unreadable" and "cp1252.sql" in d["file"] for d in payload["diagnostics"]
     )
+
+
+# --- syntax errors: CRLF must report the same line as LF, and the message must
+#     stay ASCII (sqlglot's rendered errors carry ANSI underlines / a snippet). ---
+
+
+def test_syntax_error_line_number_is_crlf_stable():
+    from coop_sql_review.diagnostics import SYNTAX_ERROR
+    from coop_sql_review.parser import parse_sql
+
+    body = "\nSELECT SUM(CASE WHEN d <= '2026-01-01' THEN amt ELSE END) AS x FROM t\n"
+    lf = [d for d in parse_sql("a.sql", body).diagnostics if d.category == SYNTAX_ERROR]
+    crlf = [
+        d for d in parse_sql("a.sql", body.replace("\n", "\r\n")).diagnostics if d.category == SYNTAX_ERROR
+    ]
+    assert [d.line for d in lf] == [d.line for d in crlf] == [2]
+
+
+def test_syntax_error_diagnostic_is_ascii_in_json(tmp_path):
+    f = tmp_path / "b.sql"
+    f.write_text("SELECT SUM(CASE WHEN d <= '2026-01-01' THEN amt ELSE END) FROM t\n", encoding="utf-8")
+    from click.testing import CliRunner
+
+    from coop_sql_review.cli import cli
+
+    result = CliRunner().invoke(cli, ["check", str(f), "--format", "json"])
+    assert result.output.isascii()  # ensure_ascii + ASCII messages -> cp1252-safe
+    assert "syntax_error" in result.output
