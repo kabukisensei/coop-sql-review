@@ -17,13 +17,13 @@ from coop_sql_review.diagnostics import PARSE_DEGRADED, SYNTAX_ERROR
 from coop_sql_review.parser import parse_sql
 
 # The real 2026-07-06 incident was a mangled WITH inside a *stored procedure*
-# (silver.factTaskKPIs). It recovers to an opaque Command at IGNORE — exactly
+# (a silver-layer KPI load proc). It recovers to an opaque Command at IGNORE — exactly
 # like the estate's VALID procs — but sqlglot flags it with the definitive
 # "column does not support CTE", which is what keeps it a syntax error.
-INCIDENT_PROC = """CREATE PROCEDURE [silver].[factTaskKPIs] AS
+INCIDENT_PROC = """CREATE PROCEDURE [silver].[usp_load_fact_kpis] AS
 BEGIN
 SET NOCOUNT ON;
-;WITH TaskHierarchyDedup AS
+;WITH HierarchyDedup AS
 (
     SELECT * FROM
 (
@@ -33,7 +33,7 @@ SET NOCOUNT ON;
 ) sub
 WHERE rn = 1
 
-INSERT INTO f (a) SELECT a FROM TaskHierarchyDedup
+INSERT INTO f (a) SELECT a FROM HierarchyDedup
 END
 """
 
@@ -41,7 +41,7 @@ END
 
 CASE_ELSE_END = "\nSELECT SUM(CASE WHEN d <= '2026-01-01' THEN amt ELSE END) AS x FROM t\n"
 
-MANGLED_WITH = """;WITH TaskHierarchyDedup AS
+MANGLED_WITH = """;WITH HierarchyDedup AS
 (
     SELECT * FROM
 (
@@ -51,7 +51,7 @@ MANGLED_WITH = """;WITH TaskHierarchyDedup AS
 ) sub
 WHERE rn = 1
 
-INSERT INTO f (a) SELECT a FROM TaskHierarchyDedup
+INSERT INTO f (a) SELECT a FROM HierarchyDedup
 """
 
 # A CTE body whose closing `) sub / WHERE rn = 1` fragments were spliced onto a
@@ -158,8 +158,8 @@ def test_recovery_still_produces_findings_for_the_valid_batch(tmp_path):
 
 
 def test_incident_mangled_cte_in_proc_is_a_syntax_error():
-    diags = _syntax_diags(parse_sql("factTaskKPIs.sql", INCIDENT_PROC))
-    assert diags, "the factTaskKPIs incident shape must be caught as a syntax error"
+    diags = _syntax_diags(parse_sql("usp_load_fact_kpis.sql", INCIDENT_PROC))
+    assert diags, "the mangled-CTE-in-a-proc incident shape must be caught as a syntax error"
     assert all(d.severity == "error" for d in diags)
     # the dangling `WHERE rn = 1` outside the CTE paren, at its file line
     assert diags[0].line == 12
@@ -179,7 +179,7 @@ def test_compound_assignment_is_a_gap_not_a_syntax_error():
 
 def test_clustered_primary_key_is_a_gap_not_a_syntax_error():
     # `PRIMARY KEY CLUSTERED (col ASC)` is valid T-SQL DDL sqlglot mis-parses.
-    sql = "CREATE TABLE dwm.t (Id INT NOT NULL, PRIMARY KEY CLUSTERED (Id ASC))"
+    sql = "CREATE TABLE mart.t (Id INT NOT NULL, PRIMARY KEY CLUSTERED (Id ASC))"
     parsed = parse_sql("connections.sql", sql)
     cats = {d.category for d in parsed.diagnostics}
     assert SYNTAX_ERROR not in cats

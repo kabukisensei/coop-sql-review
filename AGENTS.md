@@ -357,7 +357,7 @@ so working estate SQL is never reported as broken and a misclassified real error
   + `'buckets' missing for …ClusteredByProperty`. Detected by the `CLUSTERED` keyword in the batch.
 - **Procedure/function bodies** sqlglot can only partially parse — a lone generic
   `Invalid expression / Unexpected token` with no `None` in recovery (e.g. `SET NOCOUNT ON;` before
-  a trailing `UPDATE … END`). The mangled-CTE-in-a-proc incident (`silver.factTaskKPIs`) is **not**
+  a trailing `UPDATE … END`). The mangled-CTE-in-a-proc incident (2026-07-06) is **not**
   a gap: it raises the definitive `column does not support CTE` alongside the generic message.
 
 When a new estate false-positive appears (a valid construct reported as `syntax_error`), reproduce

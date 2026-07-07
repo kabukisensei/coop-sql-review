@@ -34,7 +34,7 @@ field and are called out here.
   a `CLUSTERED`/`NONCLUSTERED` key or index constraint (`PRIMARY KEY CLUSTERED (col ASC)`), and
   procedure/function bodies sqlglot can only partially parse. The whole current fabric-dw estate
   (453 `.sql` files) reports **zero** `syntax_error` diagnostics; the real 2026-07-06 incident
-  (a mangled CTE inside `silver.factTaskKPIs`) is still caught. See `AGENTS.md` "sqlglot caveat".
+  (a mangled CTE inside a silver-layer stored procedure) is still caught. See `AGENTS.md` "sqlglot caveat".
 
 ## [0.5.0] — 2026-07-01
 ### Changed
