@@ -1,7 +1,10 @@
 """Inline ignore directives + the fingerprint baseline, and fingerprint stability."""
 
+import pytest
+
 from coop_sql_review.finding import AgentReviewItem, Finding
 from coop_sql_review.suppressions import (
+    BaselineError,
     is_inline_suppressed,
     load_baseline,
     scan_directives,
@@ -91,8 +94,20 @@ def test_baseline_roundtrip_is_deduped_and_sorted(tmp_path):
     assert '"aaa"' in path.read_text(encoding="utf-8")  # sorted, human-readable
 
 
-def test_load_missing_or_malformed_baseline_is_empty(tmp_path):
-    assert load_baseline(tmp_path / "nope.json") == set()
+def test_load_missing_or_malformed_baseline_raises(tmp_path):
+    # a missing/corrupt baseline is now a loud BaselineError, not a silent empty
+    # set (which used to flood every baselined finding back with no explanation).
+    with pytest.raises(BaselineError, match="not found"):
+        load_baseline(tmp_path / "nope.json")
     bad = tmp_path / "bad.json"
-    bad.write_text("not json", encoding="utf-8")
-    assert load_baseline(bad) == set()
+    bad.write_text("{not json", encoding="utf-8")
+    with pytest.raises(BaselineError, match="not valid JSON"):
+        load_baseline(bad)
+
+
+def test_load_baseline_rejects_a_different_tools_baseline(tmp_path):
+    # the shim bakes in this tool's name, so a coop-dax-review baseline is rejected.
+    path = tmp_path / "bl.json"
+    path.write_text('{"tool": "coop-dax-review", "fingerprints": ["aaa"]}', encoding="utf-8")
+    with pytest.raises(BaselineError, match="written by"):
+        load_baseline(path)

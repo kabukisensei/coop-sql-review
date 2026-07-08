@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "coop-review-core>=0.2.0",
+    "coop-review-core>=0.3.0",
     "pydantic>=2.5",
     "PyYAML>=6.0",
     # Floor at 26: the parser relies on the >=26 NotNullColumnConstraint

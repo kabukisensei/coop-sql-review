@@ -40,6 +40,7 @@ from coop_sql_review.rules import all_rules
 from coop_sql_review.rules.base import TARGETS
 from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.suppressions import (
+    BaselineError,
     is_inline_suppressed,
     is_syntax_ignored,
     load_baseline,
@@ -783,7 +784,12 @@ def check(
             err=True,
         )
     elif baseline_path:
-        baseline_fps = load_baseline(Path(baseline_path))
+        # A corrupt/missing/wrong-tool baseline is a friendly usage error (exit 2),
+        # not a silent empty set that floods every baselined finding back.
+        try:
+            baseline_fps = load_baseline(Path(baseline_path))
+        except BaselineError as exc:
+            raise click.UsageError(str(exc)) from exc
         result.findings = [f for f in result.findings if f.fingerprint() not in baseline_fps]
         result.agent_review = [a for a in result.agent_review if a.fingerprint() not in baseline_fps]
         stale = len(baseline_fps - present_fingerprints)

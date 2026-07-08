@@ -7,6 +7,18 @@ field and are called out here.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-07-08
+### Changed
+- **Adopt `coop-review-core` 0.3.0.** The tool-local `SCAN_EMPTY` / `SYNTAX_ERROR` diagnostic
+  categories and the syntax-ignore directive scanner (`scan_syntax_ignores` / `is_syntax_ignored`)
+  now come from core (coop-review-core#1), so the whole family shares one directive grammar instead
+  of drifting copies. No behavior change.
+### Fixed
+- **A corrupt/missing/wrong-tool `--baseline` file is now a friendly usage error (exit 2)** instead
+  of silently loading an empty baseline — which used to flood every previously-baselined finding
+  back with no explanation (coop-review-core#3). A baseline written by a different tool
+  (`coop-dax-review`) is rejected too.
+
 ## [0.7.0] — 2026-07-08
 ### Added
 - **SARIF 2.1.0 output** (`--format sarif`, plus a composing `--sarif <file>` sink; issue #11).
