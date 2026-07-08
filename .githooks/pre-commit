@@ -10,6 +10,11 @@
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
+# Machine-local confidential sweep (Cooptimize-internal; no-op when absent).
+if [ -x "$HOME/.coop/hooks/confidential-sweep.sh" ]; then
+    "$HOME/.coop/hooks/confidential-sweep.sh" || exit 1
+fi
+
 if [ -x ".venv/bin/python" ]; then
     PY=".venv/bin/python"
 elif [ -x ".venv/Scripts/python.exe" ]; then
