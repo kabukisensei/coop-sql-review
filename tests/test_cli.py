@@ -5,6 +5,7 @@ the integration check that every rule module imports and runs cleanly.
 """
 
 import json
+from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -130,9 +131,27 @@ def test_baseline_lets_new_findings_through(tmp_path):
     assert "b.sql" in out
 
 
-def test_baseline_suppresses_same_logical_issue_in_another_file(tmp_path):
-    # Fingerprints are path-free: the SAME rule+object+message in a second file
-    # IS the same logical issue, and the baseline suppresses both (by design).
+def test_baseline_suppresses_same_qualified_object_in_another_file(tmp_path):
+    # Fingerprints are path-free: the SAME rule + NON-EMPTY object + message in a second
+    # file IS the same logical issue, so the baseline suppresses both (by design). Both
+    # files define silver.p, so each SELECT * carries object="silver.p".
+    # (Object-LESS findings do NOT collapse — see test_suppressions.py; issue #3.)
+    body = "CREATE OR ALTER PROCEDURE silver.p AS BEGIN SELECT * FROM t; END\n"
+    a = tmp_path / "a.sql"
+    a.write_text(body, encoding="utf-8")
+    bl = tmp_path / "bl.json"
+    CliRunner().invoke(cli, ["check", str(a), "--write-baseline", str(bl)])
+    b = tmp_path / "b.sql"
+    b.write_text(body, encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", str(tmp_path), "--baseline", str(bl)]).output
+    assert "SQL-NO-SELECT-STAR" not in out
+    assert "no issues" in out
+
+
+def test_baseline_does_not_hide_object_less_finding_in_a_new_file(tmp_path):
+    # issue #3: a bare SELECT * has object="". Baselining a.sql must NOT suppress the same
+    # finding newly introduced in b.sql — the fingerprint now carries the basename, so
+    # b.sql's finding is surfaced (the ratchet's whole point).
     a = tmp_path / "a.sql"
     a.write_text("SELECT * FROM t;\n", encoding="utf-8")
     bl = tmp_path / "bl.json"
@@ -140,8 +159,8 @@ def test_baseline_suppresses_same_logical_issue_in_another_file(tmp_path):
     b = tmp_path / "b.sql"
     b.write_text("SELECT * FROM t;\n", encoding="utf-8")
     out = CliRunner().invoke(cli, ["check", str(tmp_path), "--baseline", str(bl)]).output
-    assert "SQL-NO-SELECT-STAR" not in out
-    assert "no issues" in out
+    assert "SQL-NO-SELECT-STAR" in out  # b.sql's finding is reported, not silently hidden
+    assert "b.sql" in out
 
 
 def test_stale_baseline_entry_warns(tmp_path):
@@ -684,3 +703,85 @@ def test_config_ignore_suppresses_agent_review_item_and_is_not_stale(tmp_path):
     assert all(a["rule_id"] != "SQL-UPSERT-CHOICE" for a in payload2["agent_review"])
     # ignore_stale semantics: an ignore matching only an agent item is NOT stale.
     assert not any(d["category"] == "ignore_stale" for d in payload2["diagnostics"])
+
+
+def test_config_write_path_follows_read_config_and_guards_bundled_dir(tmp_path):
+    # issue #7: --save-ignores must write to the config the run READ from, not a new
+    # ./rules.yml that would shadow it — and never inside the installed package.
+    from coop_sql_review import cli as climod
+
+    assert climod._config_write_path("x/rules.yml", tmp_path / "whatever.yml") == Path("x/rules.yml")
+    existing = tmp_path / "rules.yml"
+    existing.write_text("rules: {}\n", encoding="utf-8")
+    assert climod._config_write_path(None, existing) == existing  # read-config outside pkg -> write back
+    assert climod._config_write_path(None, tmp_path / "nope.yml") == Path.cwd() / "rules.yml"  # none -> cwd
+    inside_pkg = Path(climod.__file__).resolve()  # a real file INSIDE the package
+    assert climod._config_write_path(None, inside_pkg) == Path.cwd() / "rules.yml"  # bundled dir guarded
+
+
+def test_save_ignores_writes_back_to_read_config_not_a_shadowing_cwd_file(tmp_path, monkeypatch):
+    # Team layout: standards + rules.yml beside it; cwd is elsewhere with NO ./rules.yml.
+    from coop_sql_review import cli as climod
+
+    std = tmp_path / "standards.md"
+    std.write_text("# standards\n", encoding="utf-8")
+    team_cfg = tmp_path / "rules.yml"  # default_config_path(std) resolves here
+    team_cfg.write_text("rules:\n  SQL-NO-SELECT-STAR:\n    severity: info\n", encoding="utf-8")
+    sqlf = tmp_path / "q.sql"
+    sqlf.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    monkeypatch.chdir(other)  # so a ./rules.yml is NOT discovered
+    # Pretend interactive and auto-select every finding the picker would offer.
+    monkeypatch.setattr(climod, "_stdio_interactive", lambda: True)
+    monkeypatch.setattr(climod, "_pick_findings_to_ignore", lambda findings: list(findings))
+
+    res = CliRunner().invoke(cli, ["check", str(sqlf), "--standards", str(std), "--save-ignores"])
+    assert res.exit_code == 0
+    assert not (other / "rules.yml").exists()  # NOT a new shadowing cwd file
+    text = team_cfg.read_text(encoding="utf-8")
+    assert "ignore" in text  # add_ignores appended the ignore list...
+    assert "severity: info" in text  # ...preserving the pre-existing override
+    # A subsequent run reads the team config and honors BOTH: the finding is now silenced.
+    out2 = CliRunner().invoke(cli, ["check", str(sqlf), "--standards", str(std)]).output
+    assert "SQL-NO-SELECT-STAR" not in out2
+
+
+def test_target_azure_sql_skips_fabric_only_type_rules(tmp_path):
+    # Azure serverless SQL supports smallmoney/xml, so --target azure-sql skips the
+    # Fabric-DW-only type rules; the default (fabric-dw) flags them.
+    f = tmp_path / "t.sql"
+    f.write_text("CREATE TABLE s.t (amt SMALLMONEY, doc XML);\n", encoding="utf-8")
+    default_out = CliRunner().invoke(cli, ["check", str(f)]).output
+    assert "SQL-TYPE-MONEY" in default_out and "SQL-TYPE-UNSUPPORTED" in default_out
+    azure_out = CliRunner().invoke(cli, ["check", str(f), "--target", "azure-sql"]).output
+    assert "SQL-TYPE-MONEY" not in azure_out and "SQL-TYPE-UNSUPPORTED" not in azure_out
+
+
+def test_target_from_rules_yml_is_honored(tmp_path):
+    f = tmp_path / "t.sql"
+    f.write_text("CREATE TABLE s.t (amt SMALLMONEY);\n", encoding="utf-8")
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("target: azure-sql\n", encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", str(f), "--config", str(cfg)]).output
+    assert "SQL-TYPE-MONEY" not in out  # rules.yml target: azure-sql skipped the rule
+
+
+def test_invalid_target_in_rules_yml_is_usage_error(tmp_path):
+    f = tmp_path / "t.sql"
+    f.write_text("SELECT 1;\n", encoding="utf-8")
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("target: sqlite\nrules: {}\n", encoding="utf-8")
+    res = CliRunner().invoke(cli, ["check", str(f), "--config", str(cfg)])
+    assert res.exit_code == 2
+    assert "invalid" in res.output.lower() and "target" in res.output.lower()
+
+
+def test_rules_json_includes_targets():
+    res = CliRunner().invoke(cli, ["rules", "--format", "json"])
+    payload = json.loads(res.output)
+    unsupported = next(r for r in payload if r["id"] == "SQL-TYPE-UNSUPPORTED")
+    assert unsupported["targets"] == ["fabric-dw"]
+    # A universal rule lists both targets.
+    star = next(r for r in payload if r["id"] == "SQL-NO-SELECT-STAR")
+    assert set(star["targets"]) == {"fabric-dw", "azure-sql"}

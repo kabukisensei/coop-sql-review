@@ -192,6 +192,57 @@ def test_unclosed_paren_without_clustered_stays_a_syntax_error():
     assert diags
 
 
+# --- Fabric-DW GA constructs sqlglot's tsql grammar can't parse (2026-07 review):
+#     each is valid Fabric SQL and must degrade, NOT fail --strict as a syntax error. ---
+
+
+def test_openrowset_bulk_is_a_gap_not_a_syntax_error():
+    # OPENROWSET(BULK ... FORMAT=/DATA_SOURCE=) — the primary external-file surface,
+    # GA on Fabric DW (Apr 2025). sqlglot can't parse the named-option arg list.
+    sql = "SELECT c1 FROM OPENROWSET(BULK 'https://acct.blob.core.windows.net/c/f.parquet', FORMAT = 'PARQUET') AS r;"
+    parsed = parse_sql("openrowset.sql", sql)
+    cats = {d.category for d in parsed.diagnostics}
+    assert SYNTAX_ERROR not in cats
+    assert PARSE_DEGRADED in cats
+
+
+def test_time_travel_option_is_a_gap_not_a_syntax_error():
+    # Statement-level time travel: OPTION (FOR TIMESTAMP AS OF '...') is GA on Fabric DW.
+    sql = "SELECT * FROM dbo.orders OPTION (FOR TIMESTAMP AS OF '2025-01-01T00:00:00.000');"
+    parsed = parse_sql("timetravel.sql", sql)
+    cats = {d.category for d in parsed.diagnostics}
+    assert SYNTAX_ERROR not in cats
+    assert PARSE_DEGRADED in cats
+
+
+def test_masked_with_column_is_a_gap_not_a_syntax_error():
+    # Dynamic data masking: MASKED WITH (FUNCTION='...') is supported on Fabric DW.
+    sql = "CREATE TABLE dbo.cust (id INT, email VARCHAR(200) MASKED WITH (FUNCTION = 'email()'));"
+    parsed = parse_sql("masked.sql", sql)
+    cats = {d.category for d in parsed.diagnostics}
+    assert SYNTAX_ERROR not in cats
+    assert PARSE_DEGRADED in cats
+
+
+def test_bare_expecting_paren_without_gap_keyword_stays_a_syntax_error():
+    # The OPENROWSET/MASKED "Expecting )" gap is keyword-scoped: a genuine `Expecting )`
+    # in a batch with NONE of the gap keywords must still be a hard syntax error (the
+    # broadened signatures only apply when their keyword is present in the batch).
+    diags = _syntax_diags(parse_sql("broken2.sql", "SELECT c FROM t WHERE x IN (1, 2\n"))
+    assert diags
+
+
+def test_real_error_in_an_openrowset_batch_is_never_silent():
+    # Accepted trade-off (same as the CLUSTERED signature): sqlglot's `Expecting )` is
+    # indistinguishable by description from OPENROWSET's, so a real bug sharing the
+    # batch may demote to parse_degraded rather than syntax_error — but it is NEVER
+    # silent. A coverage gap always surfaces as at least a warning diagnostic.
+    sql = "SELECT c FROM OPENROWSET(BULK 'x', FORMAT='CSV') AS r WHERE x = CASE WHEN 1 THEN 2;"
+    parsed = parse_sql("mixed.sql", sql)
+    assert parsed.diagnostics  # surfaced, not swallowed
+    assert any(d.category in (SYNTAX_ERROR, PARSE_DEGRADED) for d in parsed.diagnostics)
+
+
 # --- no regression: valid-but-unsupported syntax stays a warning, not an error ---
 
 
@@ -304,3 +355,18 @@ def test_verdict_reflects_a_syntax_error_even_with_no_findings(tmp_path):
     assert payload["findings"] == []
     assert payload["verdict"]["clean"] is False
     assert payload["verdict"]["highest_severity"] == "error"
+
+
+def test_syntax_error_becomes_sarif_error_result(tmp_path):
+    # A genuinely broken statement must annotate the PR line as an error-level SARIF
+    # result under the synthetic `syntax-error` rule (issue #11).
+    f = tmp_path / "broken.sql"
+    f.write_text(INCIDENT_PROC, encoding="utf-8")
+    out = CliRunner().invoke(cli, ["check", str(f), "--format", "sarif"]).output
+    sarif = json.loads(out)
+    driver_rule_ids = {r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]}
+    assert "syntax-error" in driver_rule_ids
+    errs = [r for r in sarif["runs"][0]["results"] if r["level"] == "error"]
+    assert errs, "a real syntax error must surface as an error-level SARIF result"
+    assert all(r["ruleId"] == "syntax-error" for r in errs)
+    assert errs[0]["locations"][0]["physicalLocation"]["region"]["startLine"] >= 1

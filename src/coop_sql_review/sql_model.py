@@ -109,6 +109,13 @@ class ParsedFile:
     objects: list[SqlObject] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
     _line_offsets: list[int] = field(default_factory=list)
+    # Lazily-built caches (not part of identity/equality). The node index flattens every
+    # AST node once so find_all() serves each of the ~20+ rule walks by filtering the list
+    # instead of re-walking the tree per rule. See find_all().
+    _nodes: Optional[list] = field(default=None, compare=False, repr=False)
+    # Cached EXISTS-predicate sites (helpers.exists_sites): both SQL-EXISTS-COMMENT and
+    # SQL-EXISTS-WHY-QUALITY ask for them, so the masked text is regex-scanned just once.
+    _exists_sites: Optional[list] = field(default=None, compare=False, repr=False)
 
     # -- line mapping -------------------------------------------------------
 
@@ -135,8 +142,21 @@ class ParsedFile:
                 yield batch, expression
 
     def find_all(self, *types: type[exp.Expression]) -> Iterator[tuple[Batch, exp.Expression]]:
-        """Yield ``(batch, node)`` for every AST node of the given type(s)."""
-        for batch in self.batches:
-            for expression in batch.expressions:
-                for node in expression.find_all(*types):
-                    yield batch, node
+        """Yield ``(batch, node)`` for every AST node of the given type(s).
+
+        Backed by a per-file node index built ONCE (one walk per top-level statement),
+        then served by ``isinstance`` filtering — so 24 rules don't each re-walk the tree.
+        Semantics are unchanged: the index is built with ``find_all(exp.Expression)`` (every
+        node, in the exact walk order sqlglot's ``find_all`` uses), so subclass matching and
+        document order are byte-identical to the old per-call walk.
+        """
+        if self._nodes is None:
+            nodes: list[tuple[Batch, exp.Expression]] = []
+            for batch in self.batches:
+                for expression in batch.expressions:
+                    for node in expression.find_all(exp.Expression):
+                        nodes.append((batch, node))
+            self._nodes = nodes
+        for batch, node in self._nodes:
+            if isinstance(node, types):
+                yield batch, node

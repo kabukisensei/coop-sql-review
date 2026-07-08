@@ -5,6 +5,103 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [Unreleased]
+
+## [0.7.0] — 2026-07-08
+### Added
+- **SARIF 2.1.0 output** (`--format sarif`, plus a composing `--sarif <file>` sink; issue #11).
+  Emits a deterministic single-run SARIF log so findings become inline PR annotations in GitHub
+  code scanning / Azure DevOps. Findings map to `error`/`warning`/`note` results with
+  `partialFingerprints` (GitHub dedupes across runs); agent-review items are non-blocking notes;
+  error-severity diagnostics (real syntax errors) surface under a synthetic `syntax-error` rule so
+  broken SQL annotates the PR line. No timestamps → byte-identical across runs. README has a
+  ready-to-paste GitHub Actions `upload-sarif` snippet.
+- **New rule `SQL-NARROWING-CAST`** (§I proposed; issue #10). Flags a `CAST`/`TRY_CAST`/`CONVERT`
+  of a string/binary column to a SHORTER sized type — a silent truncation in T-SQL (`TRY_CAST`
+  truncates identically). Source sizes come from in-file `CREATE TABLE`s (same bare-name binding
+  as `SQL-IMPLICIT-CONVERT`, conflicts dropped; `MAX` = infinity). Applies to both targets; relax
+  the `varchar(max) → sized` case with `params: {allow_max_to_sized: true}`.
+- **`--target fabric-dw | azure-sql`** (issue #9). The linter runs against both Fabric Data
+  Warehouse and Azure (serverless) SQL, which support different types. Rules that enforce a
+  Fabric-DW-only table limitation are tagged and auto-skipped under `--target azure-sql`;
+  resolution is `--target` > a `target:` key in `rules.yml` > default `fabric-dw`. `rules
+  --format json` now carries a `targets` array per rule, and `rules` marks Fabric-only rules.
+- **Fuller §9 data-type coverage** (issue #9), aligned to Microsoft's current "unsupported data
+  types for tables" list:
+  - `SQL-TYPE-MONEY` also flags `smallmoney`; `SQL-TYPE-DATETIME` also flags `smalldatetime` and
+    `datetimeoffset`; `SQL-TYPE-NVARCHAR` also flags `nchar`.
+  - New **`SQL-TYPE-UNSUPPORTED`** (warning) flags `tinyint`, `xml`, `json`, `geography`,
+    `geometry`, and CLR/user-defined types (e.g. `hierarchyid`) in table columns.
+  - All the above are Fabric-DW-only (skipped under `--target azure-sql`).
+  - **No IDENTITY rule:** Fabric DW now *supports* `IDENTITY` columns (Preview, `bigint`-only), so
+    the originally-proposed "flag all IDENTITY" rule is intentionally omitted. `docs/standards.md`
+    §9 updated accordingly.
+- **`SQL-TYPE-UNSUPPORTED` now also flags `vector`** (2026-07 Fabric-DW review). `VECTOR` is a real
+  SQL Server 2025 type but is unsupported for Fabric DW *table* columns; it parsed cleanly before,
+  so a stored vector column slipped through silently.
+### Performance
+- **Rule phase is ~3–4× faster** (issue #8). `ParsedFile.find_all()` re-walked the whole AST on
+  every call, so the ~24 default rules did 20+ full tree traversals per file. It now builds a
+  per-file node index once (one walk per statement) and serves each rule by `isinstance` filtering.
+  `exists_sites()` is likewise cached so the two EXISTS rules scan the masked text once, not twice.
+  Measured on the 453-file fabric-dw estate (first 200 files): rule phase **385 ms → 91 ms (−76%)**,
+  findings **byte-identical**. No rule API change; `ParsedFile` stays a plain dataclass (the caches
+  are lazy, `compare=False` fields, so determinism/identity are unaffected).
+### Changed
+- **`SQL-NO-ALTER-COLUMN` is now a `warning`, not an `error`** (2026-07 Fabric-DW review). `ALTER
+  TABLE … ALTER COLUMN` is now **Preview** on Fabric DW (specific changes are supported), not
+  universally unsupported — so it no longer fails `--strict` CI as an error, and its title/message
+  and `docs/standards.md` §9 now say "Preview" instead of "not supported".
+- **JSON `schema_version` → 3.** For a finding with an **empty** `object`, the suppression
+  **fingerprint** now substitutes the file **basename** for the object part (issue #3). Several
+  rules always emit `object=""` with a constant message (`SQL-EXISTS-COMMENT`,
+  `SQL-EXISTS-WHY-QUALITY`, `SQL-TXN-SHORT`, `SQL-HEADER-COMMENT`), so *every* such finding across
+  the whole estate previously shared **one** fingerprint — a `--baseline` (or `rules.yml` `ignore:`)
+  entry accepted for one silently hid brand-new ones in other files, and no stale-entry diagnostic
+  fired. The basename is still cwd/machine-independent, so baselines survive a directory/machine
+  change as before. **Object-less fingerprints change**: regenerate baselines / ignore lists once
+  (`--write-baseline`, or re-run `--save-ignores`). Findings *with* an object are unchanged.
+### Fixed
+- **Three newly-GA Fabric DW constructs no longer misreport as `syntax_error`** (2026-07 Fabric-DW
+  review). `OPENROWSET(BULK … FORMAT=/DATA_SOURCE=)` (GA Apr 2025), the `OPTION (FOR TIMESTAMP AS OF
+  '…')` time-travel hint, and a `MASKED WITH (FUNCTION='…')` dynamic-data-masking column are all
+  valid Fabric SQL that sqlglot's tsql grammar can't fully parse. They were classified as
+  error-severity `syntax_error` (tripping `--strict` CI on correct code); they are now recognized as
+  known grammar gaps and reported as `parse_degraded` warnings, matching the existing CLUSTERED /
+  compound-assignment handling. Signatures recorded in `sql_common._description_is_gap` and the
+  AGENTS.md "sqlglot caveat" list.
+- **Console and HTML reports now show `file:line` for agent-review items** (issue #6). Only the
+  Markdown report carried the location; the console and HTML agent blocks showed just
+  `rule (ref) · object`, so an object-less item (e.g. `SQL-TXN-SHORT`) was impossible to locate
+  among many scanned files. Both now emit the same clickable `file:line` findings get (just the
+  file when the line is 0); chrome stays ASCII and deterministic.
+- **`--save-ignores` now writes back to the config the run actually read** instead of always a new
+  `./rules.yml` (issue #7). With a team `rules.yml` beside a `--standards` file (and no `./rules.yml`),
+  saving an ignore used to create a `./rules.yml` that then *silently shadowed* the standards-side
+  config on every later run — severity overrides and enabled off-by-default rules vanished with no
+  diagnostic. The write target now follows the resolved read path; it still never writes inside the
+  installed package's bundled-standards directory, and falls back to `./rules.yml` when no config
+  file exists. Explicit `--config` behavior is unchanged.
+- **`SQL-EXISTS-COMMENT` no longer false-positives on a same-line explaining comment** (issue #5).
+  `preceding_comment()` used a strict `0 <`, which excluded a trailing `-- why` / `/* why */` ending
+  ON the `EXISTS` line — a very common way to write the §7 explanation. It now accepts a comment
+  ending on the line (`0 <=`) or a block comment spanning it; the `within=3` upper bound is
+  unchanged. `SQL-EXISTS-WHY-QUALITY` now correctly hands those commented sites to the agent.
+- **`SQL-NO-SELECT-STAR` now flags a `SELECT *` in a derived table or scalar subquery nested
+  inside a CTE** (issue #4). The exemption used `find_ancestor(CTE, Exists)`, which matched a CTE
+  *anywhere* up the chain, so a production `FROM (SELECT * …) sub` sitting inside a `WITH` body was
+  silently exempt — inconsistent with the same shape at top level. It now checks the NEAREST
+  boundary (CTE / EXISTS / Subquery); only a CTE's own or an `EXISTS(SELECT *)` select is exempt.
+- **Findings inside `CREATE PROCEDURE` bodies now carry the proc as their `object`** instead of
+  `""` (issue #2). `enclosing_object()` and the parser's object extraction now unwrap sqlglot's
+  `exp.StoredProcedure` wrapper, and a proc is lifted as a `SqlObject(kind="proc", …)`. Since the
+  estate is almost entirely stored procedures, findings previously got `object=""`, which collapsed
+  the suppression **fingerprint** to `(rule_id, message)` — so ignoring one proc's finding (inline
+  directive, `--baseline`, or `rules.yml` `ignore:`) silently suppressed the same finding in every
+  other proc. **Fingerprints for findings inside procedures change**: any baseline or ignore list
+  recorded against the old `object=""` fingerprints needs a one-time regeneration
+  (`--write-baseline`, or re-run `--save-ignores`).
+
 ## [0.6.0] — 2026-07-06
 ### Added
 - **Real T-SQL syntax errors are now reported** — a new `syntax_error` diagnostic category

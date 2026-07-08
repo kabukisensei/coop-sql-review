@@ -167,6 +167,22 @@ def _extract_object(create: exp.Create, batch: Batch, parsed: ParsedFile, dialec
             display_name=original_name(view_table.name),
             line=parsed.node_line(batch, view_table),
         )
+    if kind == "PROCEDURE":
+        # Create(this=StoredProcedure(this=Table)); unwrap the proc (and any Schema)
+        # wrapper. Lifting the proc as a SqlObject lets file-level rules and reports name
+        # it, and keeps SqlObject.kind's documented "proc" value from being dead.
+        proc = target.this if isinstance(target, exp.StoredProcedure) else target
+        if isinstance(proc, exp.Schema):
+            proc = proc.this
+        if isinstance(proc, exp.Table):
+            schema, name = table_parts(proc)
+            return SqlObject(
+                kind="proc",
+                schema=schema,
+                name=name,
+                display_name=original_name(proc.name),
+                line=parsed.node_line(batch, proc),
+            )
     return None
 
 

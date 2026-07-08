@@ -46,6 +46,16 @@ singleton-insert rule. *Source: Fabric DW load guidance.*
 ## H. Scalar UDFs in `WHERE`/`SELECT` at scale (Checkable if UDF is known, info)
 Scalar UDFs serialize execution. Flag known-UDF calls in hot paths.
 
+## I. No silent-truncation casts (Checkable, warning) — **built** (`SQL-NARROWING-CAST`)
+`CAST`/`TRY_CAST`/`CONVERT` of a string/binary column to a SHORTER sized type silently
+truncates in T-SQL (`CAST('abcdef' AS varchar(3))` → `'abc'`, no error; `TRY_CAST` truncates
+identically — truncation isn't a conversion failure). In an ETL projection that silently
+corrupts data. Using the sizes declared by in-file `CREATE TABLE`s (same bare-name binding as
+§C, conflicts dropped), flag a cast whose declared source size (`MAX` = infinity) exceeds the
+target size. Applies to both Fabric DW and Azure SQL. Relax the `varchar(max) → sized` case
+with `params: {allow_max_to_sized: true}`. *Source: T-SQL truncation semantics; estate
+"oversize values must abort the load, not truncate" policy.*
+
 ---
 *Microsoft references already cited in `standards.md` §14 (skills-for-fabric). When the
 reviewer adds a rule for any item above, cite the section here as its `standard_ref`.*

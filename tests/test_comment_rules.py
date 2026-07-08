@@ -7,6 +7,7 @@ from __future__ import annotations
 from coop_sql_review.parser import parse_sql
 from coop_sql_review.rules.base import RuleContext
 from coop_sql_review.rules.sql_exists_comment import RULE as EXISTS_RULE
+from coop_sql_review.rules.sql_exists_why_quality import RULE as WHY_QUALITY_RULE
 from coop_sql_review.rules.sql_header_comment import RULE as HEADER_RULE
 
 
@@ -233,5 +234,63 @@ def test_parenthesized_where_not_exists_predicate_still_flagged():
         "SELECT cust.CustomerId\n"
         "FROM silver.dim_customer cust\n"
         "WHERE (NOT EXISTS (SELECT 1 FROM gold.fact_sales s WHERE s.CustomerId = cust.CustomerId));\n"
+    )
+    assert len(run(EXISTS_RULE, sql)) == 1
+
+
+# -- SQL-EXISTS-COMMENT: same-line comment (issue #5) -----------------------
+
+
+def test_trailing_line_comment_on_exists_line_is_clean():
+    # A trailing `-- why` on the EXISTS line IS the §7 explanation. The old strict `0 <`
+    # in preceding_comment() excluded a comment ending on the SAME line -> false positive.
+    sql = (
+        "SELECT c.CustomerId\n"
+        "FROM silver.dim_customer AS c\n"
+        "WHERE EXISTS (  -- presence check; EXISTS avoids the COUNT scan\n"
+        "    SELECT 1 FROM silver.fact_orders o WHERE o.CustomerId = c.CustomerId\n"
+        ");\n"
+    )
+    assert run(EXISTS_RULE, sql) == []  # no missing-comment warning
+    assert len(run(WHY_QUALITY_RULE, sql)) == 1  # instead handed to the agent to judge quality
+
+
+def test_trailing_block_comment_on_exists_line_is_clean():
+    sql = (
+        "SELECT c.CustomerId FROM silver.dim_customer AS c\n"
+        "WHERE EXISTS ( /* why: presence check, not a count */\n"
+        "    SELECT 1 FROM silver.fact_orders o WHERE o.CustomerId = c.CustomerId\n"
+        ");\n"
+    )
+    assert run(EXISTS_RULE, sql) == []
+    assert len(run(WHY_QUALITY_RULE, sql)) == 1
+
+
+def test_exists_comment_exactly_three_lines_above_still_clean():
+    # Regression guard: the `within=3` upper bound is unchanged.
+    sql = (
+        "SELECT c.CustomerId\n"
+        "FROM silver.dim_customer AS c\n"
+        "-- presence check: EXISTS avoids a needless COUNT\n"
+        "\n"
+        "\n"
+        "WHERE EXISTS (\n"  # line 6; comment line_end=3 -> diff 3 == within
+        "    SELECT 1 FROM silver.fact_orders o WHERE o.CustomerId = c.CustomerId\n"
+        ");\n"
+    )
+    assert run(EXISTS_RULE, sql) == []
+
+
+def test_exists_comment_four_lines_above_is_flagged():
+    sql = (
+        "SELECT c.CustomerId\n"
+        "FROM silver.dim_customer AS c\n"
+        "-- presence check\n"
+        "\n"
+        "\n"
+        "\n"
+        "WHERE EXISTS (\n"  # line 7; comment line_end=3 -> diff 4 > within -> flagged
+        "    SELECT 1 FROM silver.fact_orders o WHERE o.CustomerId = c.CustomerId\n"
+        ");\n"
     )
     assert len(run(EXISTS_RULE, sql)) == 1

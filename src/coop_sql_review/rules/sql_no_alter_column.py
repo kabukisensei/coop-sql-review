@@ -1,7 +1,9 @@
-"""SQL-NO-ALTER-COLUMN (§9): ALTER COLUMN is unsupported in Fabric DW.
+"""SQL-NO-ALTER-COLUMN (§9): ALTER COLUMN is Preview in Fabric DW.
 
-Fabric Data Warehouse does not support ``ALTER TABLE ... ALTER COLUMN``; the
-schema-evolution workaround is to rebuild the table via CTAS and then RENAME.
+``ALTER TABLE ... ALTER COLUMN`` is now IN PREVIEW on Fabric Data Warehouse (only
+specific changes are supported), not universally unsupported — so this is an
+advisory ``warning``, not an ``error``: confirm the specific change is supported,
+or use the CTAS + RENAME rebuild for anything Preview doesn't cover.
 
 Detection is text-based (over the comment/string-masked source) rather than
 AST-based on purpose: sqlglot degrades the most common real form —
@@ -34,7 +36,7 @@ def check(ctx: RuleContext) -> list[Finding]:
             ctx.finding(
                 line=ctx.parsed.line_of_offset(match.start()),
                 object=f"{schema}.{name}",
-                message="ALTER COLUMN is not supported in Fabric DW — use the CTAS + RENAME workaround (§9).",
+                message="ALTER COLUMN is Preview in Fabric DW — confirm the specific change is supported, or use the CTAS + RENAME workaround (§9).",
             )
         )
     return findings
@@ -42,8 +44,8 @@ def check(ctx: RuleContext) -> list[Finding]:
 
 RULE = Rule(
     id="SQL-NO-ALTER-COLUMN",
-    title="No ALTER COLUMN in Fabric DW",
-    severity="error",
+    title="ALTER COLUMN is Preview in Fabric DW",
+    severity="warning",
     category="schema-evolution",
     standard_ref="§9",
     tier=1,

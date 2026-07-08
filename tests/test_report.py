@@ -4,7 +4,7 @@ import json
 
 from coop_sql_review.engine import Result
 from coop_sql_review.finding import AgentReviewItem, Finding
-from coop_sql_review.report import console_lines, json_text, to_html, to_json
+from coop_sql_review.report import console_lines, json_text, to_html, to_json, to_sarif
 
 STANDARDS = {"path": "docs/standards.md", "sha256": "abc123"}
 
@@ -29,8 +29,8 @@ def test_json_contract_keys():
     assert payload["version"] == "0.1.0"
     assert payload["standards"] == {"path": "docs/standards.md", "sha256": "abc123"}
     assert payload["summary"] == {"error": 0, "warning": 2, "info": 0}
-    # v2: fingerprints dropped the display path from their identity (cwd-independent).
-    assert payload["schema_version"] == 2
+    # v3: empty-object fingerprints substitute the file basename (still cwd-independent).
+    assert payload["schema_version"] == 3
     assert set(payload["verdict"]) == {"clean", "highest_severity"}
     first = payload["findings"][0]
     assert set(first) == {
@@ -70,6 +70,24 @@ def test_console_lists_agent_review_items():
     assert "Agent review (judgment required)" in text  # the section, not just a count
     assert "JUDGE" in text
     assert "SQL-UPSERT-CHOICE" in text  # the actual flagged rule is shown
+    assert "gold/fact.sql:20" in text  # issue #6: the clickable location, so it's locatable
+
+
+def test_console_agent_item_line_zero_shows_just_the_file():
+    # A file-level agent item (line 0) prints only the file — never ":0".
+    result = Result(
+        findings=[],
+        agent_review=[AgentReviewItem("SQL-TXN-SHORT", "silver/load.sql", "", 0, "explicit txn", "§9")],
+        files_checked=1,
+    )
+    text = "\n".join(console_lines(result))
+    assert "silver/load.sql" in text
+    assert "silver/load.sql:0" not in text
+
+
+def test_html_agent_row_includes_file_and_line():
+    html = to_html(_result(), version="0.1.0", standards=STANDARDS)
+    assert "gold/fact.sql:20" in html  # issue #6: agent row carries the location like findings do
 
 
 def test_console_is_report_styled_and_plain_by_default():
@@ -109,3 +127,67 @@ def test_html_is_self_contained_and_escapes():
     # branded: the Cooptimize logo is embedded inline as a data URI
     assert "data:image/png;base64," in out
     assert "SQL Review" in out
+
+
+def test_sarif_is_valid_2_1_0_and_maps_findings():
+    import json as _json
+
+    sarif = _json.loads(to_sarif(_result(), version="0.1.0", standards=STANDARDS))
+    assert sarif["version"] == "2.1.0"
+    assert "$schema" in sarif
+    run = sarif["runs"][0]
+    driver = run["tool"]["driver"]
+    assert driver["name"] == "coop-sql-review" and driver["version"] == "0.1.0"
+    rule_ids = {r["id"] for r in driver["rules"]}
+    # Every result maps to a rule that exists in tool.driver.rules.
+    for res in run["results"]:
+        assert res["ruleId"] in rule_ids
+    # The finding maps to a warning-level result at its line with its fingerprint.
+    finding_res = next(r for r in run["results"] if r["ruleId"] == "SQL-TYPE-MONEY")
+    assert finding_res["level"] == "warning"
+    assert finding_res["locations"][0]["physicalLocation"]["region"]["startLine"] == 4
+    assert finding_res["partialFingerprints"]["coopFingerprint/v2"] == _result().findings[0].fingerprint()
+    # The agent-review item is a non-blocking note.
+    agent_res = next(r for r in run["results"] if r["ruleId"] == "SQL-UPSERT-CHOICE")
+    assert agent_res["level"] == "note"
+
+
+def test_sarif_severity_mapping():
+    from coop_sql_review.engine import Result
+
+    result = Result(
+        findings=[
+            Finding("SQL-A", "error", "a.sql", 1, "o", "m", "§1"),
+            Finding("SQL-B", "warning", "a.sql", 2, "o", "m", "§1"),
+            Finding("SQL-C", "info", "a.sql", 3, "o", "m", "§1"),
+        ],
+        files_checked=1,
+    )
+    import json as _json
+
+    levels = {
+        r["ruleId"]: r["level"]
+        for r in _json.loads(to_sarif(result, version="0", standards=STANDARDS))["runs"][0]["results"]
+    }
+    assert levels == {"SQL-A": "error", "SQL-B": "warning", "SQL-C": "note"}  # info -> note
+
+
+def test_sarif_omits_region_for_line_zero():
+    from coop_sql_review.engine import Result
+
+    result = Result(
+        findings=[Finding("SQL-X", "warning", "a.sql", 0, "", "file-level", "§1")], files_checked=1
+    )
+    import json as _json
+
+    loc = _json.loads(to_sarif(result, version="0", standards=STANDARDS))["runs"][0]["results"][0][
+        "locations"
+    ][0]
+    assert "region" not in loc["physicalLocation"]  # no line -> no region
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "a.sql"
+
+
+def test_sarif_is_deterministic():
+    a = to_sarif(_result(), version="0.1.0", standards=STANDARDS)
+    b = to_sarif(_result(), version="0.1.0", standards=STANDARDS)
+    assert a == b and a.endswith("\n")

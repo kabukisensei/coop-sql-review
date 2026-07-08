@@ -22,8 +22,12 @@ def check(ctx: RuleContext) -> list[Finding]:
     findings: list[Finding] = []
     for batch, select in ctx.parsed.find_all(exp.Select):
         # A CTE's own SELECT or an EXISTS(SELECT *) is intermediate by design — allow *
-        # there. A derived-table subquery is production code (§4 Bad pattern), so NOT exempt.
-        if select.find_ancestor(exp.CTE, exp.Exists) is not None:
+        # there. A derived-table / scalar subquery is production code (§4 Bad pattern), so
+        # NOT exempt. Include exp.Subquery in the search and check the NEAREST boundary: a
+        # find_ancestor(CTE, Exists) alone matched a CTE anywhere up the chain, so a derived
+        # table nested inside a CTE was wrongly exempted (a common shape in layered ETL).
+        boundary = select.find_ancestor(exp.CTE, exp.Exists, exp.Subquery)
+        if isinstance(boundary, (exp.CTE, exp.Exists)):
             continue
         for star in projection_stars(select):
             findings.append(

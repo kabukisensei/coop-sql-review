@@ -20,3 +20,11 @@ def test_text_output_is_stable():
     first = runner.invoke(cli, ["check", FIXTURE])
     second = runner.invoke(cli, ["check", FIXTURE])
     assert first.output == second.output
+
+
+def test_sarif_output_is_byte_identical_across_runs():
+    runner = CliRunner()
+    first = runner.invoke(cli, ["check", FIXTURE, "--format", "sarif"])
+    second = runner.invoke(cli, ["check", FIXTURE, "--format", "sarif"])
+    assert first.exit_code == 0 and second.exit_code == 0
+    assert first.output == second.output and first.output.endswith("\n")

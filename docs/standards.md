@@ -383,16 +383,31 @@ GROUP BY c.CustomerId, c.FirstName;
 
 ### Data Types
 
-Fabric Data Warehouse does NOT support these T-SQL types. Use the alternatives:
+Fabric Data Warehouse does NOT support these T-SQL types **for tables** (persisted
+columns). Use the alternatives:
 
 | Do NOT Use | Use Instead | Notes |
 |-----------|-------------|-------|
-| `nvarchar` | `varchar` | Fabric DW uses UTF-8 encoding; `varchar` is Unicode-safe |
-| `datetime` | `datetime2` | More precision, smaller storage |
-| `money` | `decimal(19,4)` | Exact precision, avoids rounding issues |
-| `text` | `varchar(max)` | Standard T-SQL pattern |
-| `ntext` | `varchar(max)` | Standard T-SQL pattern |
+| `nvarchar`, `nchar` | `varchar`, `char` | Fabric DW uses UTF-8; `varchar`/`char` cover the same Unicode data (may use more storage) |
+| `datetime`, `smalldatetime` | `datetime2` | More precision, smaller storage |
+| `datetimeoffset` | `datetime2` | If you need the offset, CAST + `AT TIME ZONE` at query time |
+| `money`, `smallmoney` | `decimal(19,4)` | Exact precision; note it can't store the monetary unit |
+| `tinyint` | `smallint` | Fabric DW has no `tinyint` |
+| `text`, `ntext` | `varchar(max)` | Standard T-SQL pattern |
 | `image` | `varbinary(max)` | Standard T-SQL pattern |
+| `xml` | `varchar(max)` | No native XML; store as text, or process outside the warehouse |
+| `json` | `varchar(max)` | Query with the JSON functions over `varchar` |
+| `geography`, `geometry` | lat/long columns, `varbinary` (WKB), or `varchar` (WKT) | No spatial types for tables |
+| `hierarchyid`, CLR user-defined types | supported types | No CLR/UDT support for tables |
+
+> **Scope + targets.** These restrictions apply to Fabric DW **tables**; the same types are
+> still valid for variables, parameters, and in-session use. **Azure (serverless) SQL supports
+> all of them** — when linting Azure SQL, pass `--target azure-sql` (or set `target: azure-sql`
+> in `rules.yml`) to skip these Fabric-DW-only rules.
+>
+> **IDENTITY columns are now supported** in Fabric DW (Preview): use `bigint IDENTITY` for
+> surrogate keys. Limitations: `bigint` only, no `seed`/`increment`, no `IDENTITY_INSERT`, and no
+> `ALTER TABLE … ADD` of an IDENTITY column (use CTAS / `SELECT … INTO`).
 
 ```sql
 -- Good: Fabric DW compatible types
@@ -454,7 +469,7 @@ AS SELECT * FROM cte_staging;
 
 ### Schema Evolution
 
-`ALTER COLUMN` is not supported in Fabric DW. Use CTAS workaround:
+`ALTER COLUMN` is Preview in Fabric DW (only specific changes are supported) — confirm the change is supported, or use the CTAS workaround:
 
 ```sql
 -- Need to change Revenue from decimal(10,2) to decimal(19,4)?
@@ -548,9 +563,9 @@ sqlcmd -S "endpoint.datawarehouse.fabric.microsoft.com" -d "DatabaseName" -G
 - [ ] EXISTS / NOT EXISTS have reasoning comments
 - [ ] Filtering logic pushed to CTEs (not in JOIN clauses)
 - [ ] Joins use source tables directly when possible
-- [ ] **Fabric DW data types verified** — no `nvarchar`/`datetime`/`money` (use `varchar`/`datetime2`/`decimal` instead)
+- [ ] **Fabric DW data types verified** — no `nvarchar`/`nchar`/`datetime`/`smalldatetime`/`datetimeoffset`/`money`/`smallmoney`/`tinyint`/`text`/`ntext`/`image`/`xml`/`json`/`geography`/`geometry`/`vector`/CLR types in table columns (use the supported alternatives)
 - [ ] **No singleton INSERT VALUES at scale** — use INSERT...SELECT, CTAS, or COPY INTO
-- [ ] **No ALTER COLUMN** — use CTAS workaround for schema evolution
+- [ ] **ALTER COLUMN is Preview** — confirm the specific change is supported, or use the CTAS workaround for schema evolution
 - [ ] **Transactions kept short** — long transactions increase conflict window
 
 ## 14. References

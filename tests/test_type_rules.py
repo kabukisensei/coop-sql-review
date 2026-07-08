@@ -108,3 +108,77 @@ CREATE TABLE silver.evt (
 );
 """
     assert run(DATETIME_RULE, sql) == []
+
+
+# --- issue #9: sibling types + the new SQL-TYPE-UNSUPPORTED rule ---------------------
+from coop_sql_review.rules.sql_type_unsupported import RULE as UNSUPPORTED_RULE  # noqa: E402
+
+SIBLING_SQL = """\
+CREATE TABLE silver.s (
+    a SMALLMONEY,
+    b SMALLDATETIME,
+    c DATETIMEOFFSET,
+    d NCHAR(10)
+);
+"""
+
+
+def test_money_flags_smallmoney():
+    f = run(MONEY_RULE, SIBLING_SQL)
+    assert [x.line for x in f] == [2]
+    assert "smallmoney" in f[0].message
+
+
+def test_datetime_flags_smalldatetime_and_datetimeoffset():
+    f = run(DATETIME_RULE, SIBLING_SQL)
+    assert sorted(x.line for x in f) == [3, 4]
+    msgs = " ".join(x.message for x in f)
+    assert "smalldatetime" in msgs and "datetimeoffset" in msgs
+
+
+def test_nvarchar_flags_nchar():
+    f = run(NVARCHAR_RULE, SIBLING_SQL)
+    assert [x.line for x in f] == [5]
+    assert "nchar" in f[0].message and "char" in f[0].message
+
+
+UNSUPPORTED_SQL = """\
+CREATE TABLE silver.u (
+    a TINYINT,
+    b XML,
+    c JSON,
+    d GEOGRAPHY,
+    e GEOMETRY,
+    f HIERARCHYID,
+    g VECTOR(1536)
+);
+"""
+
+
+def test_unsupported_flags_all_table_breaking_types():
+    f = run(UNSUPPORTED_RULE, UNSUPPORTED_SQL)
+    assert sorted(x.line for x in f) == [2, 3, 4, 5, 6, 7, 8]
+    assert all(x.rule_id == "SQL-TYPE-UNSUPPORTED" for x in f)
+    joined = " ".join(x.message for x in f)
+    # vector is a SQL Server 2025 type unsupported for Fabric DW tables (§9).
+    for kw in ("tinyint", "xml", "json", "geography", "geometry", "user-defined/CLR", "vector"):
+        assert kw in joined
+
+
+def test_unsupported_no_false_positives_on_supported_types():
+    sql = "CREATE TABLE s.t (a INT, b VARCHAR(20), c DECIMAL(19,4), d DATETIME2, e VARBINARY(8), g BIGINT IDENTITY);"
+    assert run(UNSUPPORTED_RULE, sql) == []
+
+
+def test_identity_is_not_flagged_by_any_type_rule():
+    # Fabric DW now SUPPORTS IDENTITY (bigint, Preview) — no type rule should flag it.
+    sql = "CREATE TABLE s.t (id BIGINT IDENTITY NOT NULL, name VARCHAR(50));"
+    for rule in (NVARCHAR_RULE, DATETIME_RULE, MONEY_RULE, DEPRECATED_RULE, UNSUPPORTED_RULE):
+        assert run(rule, sql) == []
+
+
+def test_type_rules_are_tagged_fabric_only():
+    from coop_sql_review.rules.base import FABRIC_ONLY
+
+    for rule in (NVARCHAR_RULE, DATETIME_RULE, MONEY_RULE, UNSUPPORTED_RULE):
+        assert rule.targets == FABRIC_ONLY

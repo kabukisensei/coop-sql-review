@@ -17,7 +17,10 @@ def test_alter_column_flagged():
     assert len(findings) == 1
     finding = findings[0]
     assert finding.rule_id == "SQL-NO-ALTER-COLUMN"
-    assert finding.severity == "error"
+    # ALTER COLUMN is now Preview in Fabric DW (not unsupported) — advisory warning,
+    # not an error that would trip --strict CI on a supported Preview change.
+    assert finding.severity == "warning"
+    assert "Preview" in finding.message
     assert finding.object == "dbo.customer"
     assert finding.line == 1
 
@@ -50,7 +53,7 @@ def test_bracketed_table_name_with_space_flagged():
     # REGRESSION: a bracket-delimited T-SQL identifier may contain spaces
     # (e.g. [My Table]). The table-name capture must allow spaces inside
     # brackets, otherwise the pattern stops at the first space and never reaches
-    # the ALTER COLUMN, producing a false negative for this error-severity rule.
+    # the ALTER COLUMN, producing a false negative for this warning-severity rule.
     findings = run("ALTER TABLE dbo.[My Table] ALTER COLUMN c INT NOT NULL;")
     assert len(findings) == 1
     assert findings[0].object == "dbo.my table"

@@ -16,6 +16,17 @@ from typing import Any, Optional
 from coop_sql_review.finding import AgentReviewItem, Finding
 from coop_sql_review.sql_model import ParsedFile
 
+# SQL targets a rule can apply to. This linter runs against BOTH Microsoft Fabric Data
+# Warehouse and Azure (serverless) SQL. Fabric DW rejects several data types/features that
+# Azure SQL accepts, so a rule enforcing a Fabric-DW-only restriction is tagged
+# ``FABRIC_ONLY`` and auto-skipped under ``--target azure-sql``. Rules that are universal
+# best practice (SELECT *, EXISTS comments, deprecated LOB types) apply to ``ALL_TARGETS``.
+FABRIC_DW = "fabric-dw"
+AZURE_SQL = "azure-sql"
+TARGETS = (FABRIC_DW, AZURE_SQL)
+ALL_TARGETS = frozenset(TARGETS)
+FABRIC_ONLY = frozenset({FABRIC_DW})
+
 
 @dataclass
 class Rule:
@@ -32,6 +43,9 @@ class Rule:
     # (`enabled: true`); used for checks that are noisy on estates that don't
     # follow that particular convention (header blocks, medallion schema names).
     default_enabled: bool = True
+    # SQL targets this rule applies to; a rule outside the run's --target is skipped.
+    # Immutable default -> safe as a plain dataclass default.
+    targets: frozenset[str] = ALL_TARGETS
     params: dict[str, Any] = field(default_factory=dict)  # tunables from rules.yml (e.g. thresholds)
     check: Optional[Callable[["RuleContext"], list[Finding]]] = None
     detect: Optional[Callable[["RuleContext"], list[AgentReviewItem]]] = None

@@ -59,3 +59,29 @@ def test_findings_sorted_deterministically():
     result = run_rules(_parse(), [_emit_rule("warning")])
     keys = [(f.file, f.line, f.rule_id) for f in result.findings]
     assert keys == sorted(keys)
+
+
+def test_find_all_is_cached_and_semantics_preserved():
+    # issue #8: find_all() is backed by a per-file node index (one walk, then isinstance
+    # filtering) so 20+ rules don't each re-walk the tree. Semantics must be identical:
+    # same (batch, node) pairs, same document order, and stable across repeated calls.
+    from sqlglot import exp
+
+    parsed = parse_sql(
+        "q.sql",
+        "SELECT a, b FROM t WHERE a IN (SELECT x FROM u); SELECT * FROM v;",
+    )
+    # Reference: the old per-call walk.
+    ref = [
+        (batch, node)
+        for batch in parsed.batches
+        for expr in batch.expressions
+        for node in expr.find_all(exp.Select)
+    ]
+    first = list(parsed.find_all(exp.Select))
+    second = list(parsed.find_all(exp.Select))  # served from the cache the 2nd time
+    assert [id(n) for _, n in first] == [id(n) for _, n in ref]  # identical nodes, same order
+    assert [id(n) for _, n in second] == [id(n) for _, n in first]  # stable across calls
+    assert parsed._nodes is not None  # the index was built and retained
+    # Subclass matching still works (Query is the base of Select/Union).
+    assert len(list(parsed.find_all(exp.Query))) >= len(first)

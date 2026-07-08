@@ -13,14 +13,21 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 
 ## Deterministic rules — build these
 
+> **SQL target.** Rules marked *(fabric-dw only)* enforce a Fabric Data Warehouse table
+> limitation that Azure (serverless) SQL does not share. They run by default (`--target
+> fabric-dw`); pass `--target azure-sql` (or set `target: azure-sql` in `rules.yml`) to skip
+> them. `coop-sql-review rules` marks them `[fabric-dw only]`, and `rules --format json`
+> carries a `targets` array per rule.
+
 | Rule ID | § | What it flags | Sev | Method | Tier |
 |---|---|---|---|---|---|
 | `SQL-NO-SELECT-STAR` | 11 | `SELECT *` in a production (non-intermediate) select | warning | AST | 1 |
 | `SQL-ALIAS-DESCRIPTIVE` | 2 | table alias is a single letter / < 3 chars | warning | AST | 1 |
-| `SQL-TYPE-NVARCHAR` | 9 | column type `nvarchar` → use `varchar` | warning | AST | 1 |
-| `SQL-TYPE-DATETIME` | 9 | type `datetime` → use `datetime2` | warning | AST | 1 |
-| `SQL-TYPE-MONEY` | 9 | type `money` → use `decimal(19,4)` | warning | AST | 1 |
+| `SQL-TYPE-NVARCHAR` | 9 | `nvarchar`/`nchar` → use `varchar`/`char` (fabric-dw only) | warning | AST | 1 |
+| `SQL-TYPE-DATETIME` | 9 | `datetime`/`smalldatetime`/`datetimeoffset` → `datetime2` (fabric-dw only) | warning | AST | 1 |
+| `SQL-TYPE-MONEY` | 9 | `money`/`smallmoney` → `decimal(19,4)` (fabric-dw only) | warning | AST | 1 |
 | `SQL-TYPE-DEPRECATED` | 9 | `text` / `ntext` / `image` → `varchar(max)`/`varbinary(max)` | warning | AST | 1 |
+| `SQL-TYPE-UNSUPPORTED` | 9 | `tinyint`/`xml`/`json`/`geography`/`geometry`/CLR types for tables (fabric-dw only) | warning | AST | 1 |
 | `SQL-NO-ALTER-COLUMN` | 9 | `ALTER ... ALTER COLUMN` (unsupported in Fabric DW) | error | AST/text | 1 |
 | `SQL-SINGLETON-INSERT` | 9 | `INSERT ... VALUES` (esp. repeated singletons) | warning | AST | 1 |
 | `SQL-CTE-PREFIX` | 1 | CTE name not prefixed `cte_` | info | AST | 1 |
@@ -49,7 +56,7 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 ## Proposed-additions rules — built from `docs/standards-proposed-additions.md`
 
 These are the *checkable* items from the proposed-additions doc; their `standard_ref` is that
-doc's section letter (`§A`–`§F`), not a `standards.md` section.
+doc's section letter (`§A`–`§I`), not a `standards.md` section.
 
 | Rule ID | § | What it flags | Sev | Method |
 |---|---|---|---|---|
@@ -58,6 +65,7 @@ doc's section letter (`§A`–`§F`), not a `standards.md` section.
 | `SQL-DISTINCT-SMELL` | F | `SELECT DISTINCT` (often masks a fan-out join); aggregate `DISTINCT` excluded | info | AST |
 | `SQL-TRY-CAST-BRONZE` | D | `CAST` of a column when a `bronze.*` table is a read source — prefer `TRY_CAST` | info | AST |
 | `SQL-IMPLICIT-CONVERT` | C | predicate comparing a column to a mismatched-type literal (type known from an in-file `CREATE`); direction-aware message — converting the COLUMN hurts SARGability, converting the LITERAL is a clarity nit | info | AST |
+| `SQL-NARROWING-CAST` | I | `CAST`/`TRY_CAST`/`CONVERT` of a string/binary column to a SHORTER sized type — silent truncation (source size from an in-file `CREATE`; `MAX`=∞; conflicts dropped). Both targets; relax `max→sized` via `params: {allow_max_to_sized: true}` | warning | AST |
 
 Proposed items **§B** (maintain statistics), **§G** (`COPY INTO` for bulk ingestion), and **§H**
 (scalar UDFs in hot paths) are deferred — they need runtime/catalog context or are agent-judgment,

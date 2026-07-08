@@ -40,8 +40,17 @@ User-facing usage docs live in `README.md` (written for readers with little term
 `--html <file>` / `--md/--markdown <file>` (extra report sinks — compose with `--format`, never
 open a browser; via `cli._write_extra_report`), `--open/--no-open`, `--color/--no-color`,
 `--min-severity`, `--baseline`, `--write-baseline`, `--save-ignores` (interactive; see below),
-`--dialect`, `--log-file`, `--strict` (opt-in CI gate →
+`--dialect`, `--target fabric-dw|azure-sql`, `--log-file`, `--strict` (opt-in CI gate →
 exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
+
+**SQL target (`--target`).** The linter runs against BOTH Microsoft Fabric Data Warehouse and
+Azure (serverless) SQL. Some §9 rules enforce a Fabric-DW-only table limitation (types Fabric DW
+rejects but Azure SQL accepts — `SQL-TYPE-MONEY`/`-DATETIME`/`-NVARCHAR`/`-UNSUPPORTED`); each
+carries `targets=FABRIC_ONLY` (`rules/base.py`). Resolution: `--target` flag > a `target:` key in
+`rules.yml` > default `fabric-dw`; a rule outside the active target is skipped (filtered in
+`cli.py` after `apply_config`, so a rule's own enable/severity override is still honored when it
+applies). `rules --format json` includes a `targets` array. NB: **IDENTITY columns are now
+supported** in Fabric DW (Preview, `bigint` only) — there is deliberately no rule flagging them.
 `check` with no PATHS in an interactive terminal shows a questionary folder-picker
 (`cli._interactive_pick_paths`); non-TTY falls back to scanning `.`.
 
@@ -355,6 +364,13 @@ so working estate SQL is never reported as broken and a misclassified real error
   missing for …EQ/Neg…`. Detected by the `SET @v <op>=` construct in the batch.
 - **`CLUSTERED`/`NONCLUSTERED` key or index** — `PRIMARY KEY CLUSTERED ([col] ASC)` → `Expecting )`
   + `'buckets' missing for …ClusteredByProperty`. Detected by the `CLUSTERED` keyword in the batch.
+- **`OPENROWSET(BULK …)`** — the external-file query/ingest surface (GA on Fabric DW, Apr 2025):
+  `SELECT … FROM OPENROWSET(BULK '…', FORMAT='PARQUET')` → `Expecting )` on the named-option arg
+  list. Detected by the `OPENROWSET(` keyword. (Added 2026-07 Fabric-DW review.)
+- **`OPTION (FOR TIMESTAMP AS OF '…')`** — statement-level time travel (GA): → `Unknown option FOR
+  TIMESTAMP` + `Expecting )`, with the SELECT recovering cleanly. Detected by `FOR TIMESTAMP AS OF`.
+- **`MASKED WITH (FUNCTION='…')`** — dynamic data masking in CREATE/ALTER TABLE: degrades the whole
+  statement to an opaque `Command` with a lone `Expecting )`. Detected by the `MASKED WITH` keyword.
 - **Procedure/function bodies** sqlglot can only partially parse — a lone generic
   `Invalid expression / Unexpected token` with no `None` in recovery (e.g. `SET NOCOUNT ON;` before
   a trailing `UPDATE … END`). The mangled-CTE-in-a-proc incident (2026-07-06) is **not**

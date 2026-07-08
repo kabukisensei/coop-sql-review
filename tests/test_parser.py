@@ -165,3 +165,21 @@ def test_go_with_trailing_junk_does_not_split():
     # `GO` followed by anything that is not a count is NOT a separator line.
     sql = "SELECT 1\nGO TO work\nSELECT 2\n"
     assert len(split_batches_with_lines(sql)) == 1
+
+
+def test_procedure_lifted_as_object():
+    # CREATE PROCEDURE parses to Create(this=StoredProcedure(this=Table)); the parser
+    # must lift it as a SqlObject(kind="proc") so file-level rules/reports can name it
+    # (issue #2 — the estate is almost all procs).
+    sql = "CREATE OR ALTER PROCEDURE silver.load_dim_customer AS BEGIN SELECT 1; END"
+    parsed = parse_sql("proc.sql", sql)
+    procs = [o for o in parsed.objects if o.kind == "proc"]
+    assert len(procs) == 1
+    assert (procs[0].kind, procs[0].schema, procs[0].name) == ("proc", "silver", "load_dim_customer")
+
+
+def test_procedure_bracketed_name_lifted():
+    parsed = parse_sql("proc.sql", "CREATE PROCEDURE [silver].[p] AS BEGIN SELECT 1; END")
+    procs = [o for o in parsed.objects if o.kind == "proc"]
+    assert len(procs) == 1
+    assert (procs[0].schema, procs[0].name) == ("silver", "p")

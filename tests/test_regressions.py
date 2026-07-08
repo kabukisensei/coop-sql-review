@@ -22,7 +22,9 @@ def _run(rule, sql):
 def test_alter_column_with_nullability_is_flagged():
     findings = _run(ALTER_RULE, "ALTER TABLE gold.fact ALTER COLUMN Revenue decimal(19,4) NOT NULL;")
     assert len(findings) == 1
-    assert findings[0].severity == "error"
+    # Detection must survive the exp.Command degradation (the point of this regression);
+    # severity is now warning since ALTER COLUMN is Preview (not unsupported) in Fabric DW.
+    assert findings[0].severity == "warning"
     assert findings[0].object == "gold.fact"
 
 

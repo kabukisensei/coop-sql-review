@@ -132,6 +132,14 @@ A typical report looks like this:
 coop-sql-review check sql-folder --min-severity warning
 ```
 
+**Checking Azure SQL instead of Fabric?** Some rules flag types that Fabric Data Warehouse
+doesn't allow in tables (like `money`, `nvarchar`, `tinyint`, `xml`) — but Azure (serverless)
+SQL accepts those. Add `--target azure-sql` to skip the Fabric-only rules:
+```
+coop-sql-review check sql-folder --target azure-sql
+```
+(The default is `--target fabric-dw`. You can also put `target: azure-sql` in your `rules.yml`.)
+
 **Big folder? Save the report to a file** so you can scroll/search it instead of watching it fly
 past (a progress bar shows while it scans):
 ```
@@ -143,13 +151,27 @@ self-contained page; no internet needed). Add `--no-open` if you'd rather it did
 You can also use `--format markdown` (open `review.md` in any editor) or plain `--output
 review.txt`.
 
-**Want a file *and* the report on screen?** `--html <file>` and `--md <file>` write an extra
-copy alongside whatever you're already doing (they compose with `--format`, and unlike
-`--output --format html` they never open a browser) — handy for saving an artifact while still
-reading the report in your terminal:
+**Want a file *and* the report on screen?** `--html <file>`, `--md <file>`, and `--sarif <file>`
+write an extra copy alongside whatever you're already doing (they compose with `--format`, and
+unlike `--output --format html` they never open a browser) — handy for saving an artifact while
+still reading the report in your terminal:
 ```
 coop-sql-review check sql-folder --html review.html --md review.md
 ```
+
+**Annotate a pull request in CI (GitHub / Azure DevOps).** `--format sarif` emits a standard
+**SARIF 2.1.0** report that GitHub code scanning (and Azure DevOps) turn into inline PR
+annotations on the exact lines. A ready-to-paste GitHub Actions step:
+```yaml
+    - name: SQL standards review
+      run: coop-sql-review check sql/ --format sarif -o coop-sql-review.sarif
+    - name: Upload SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: coop-sql-review.sarif
+```
+The tool stays advisory (exit 0) unless you add `--strict`, so the SARIF annotations appear
+without failing the build — add `--strict` if you want the build to go red on remaining findings.
 
 ---
 

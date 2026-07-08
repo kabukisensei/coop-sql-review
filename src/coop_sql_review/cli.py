@@ -35,8 +35,9 @@ from coop_sql_review.engine import run_rules
 from coop_sql_review.finding import SEVERITIES
 from coop_sql_review.parser import parse_sql
 from coop_sql_review.progress import Progress, should_enable
-from coop_sql_review.report import console_lines, json_text, log_text, to_html, to_markdown
+from coop_sql_review.report import console_lines, json_text, log_text, to_html, to_markdown, to_sarif
 from coop_sql_review.rules import all_rules
+from coop_sql_review.rules.base import TARGETS
 from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.suppressions import (
     is_inline_suppressed,
@@ -216,10 +217,48 @@ def _config_read_path(config_path: str | None, std_path: Path) -> Path:
     return default_config_path(std_path)
 
 
-def _config_write_path(config_path: str | None) -> Path:
-    """Where to WRITE ignores: --config if given, else ./rules.yml (never the
-    bundled standards directory inside the installed package)."""
-    return Path(config_path) if config_path else Path.cwd() / "rules.yml"
+def _config_target(cfg_path: Path) -> str | None:
+    """A top-level ``target:`` scalar from rules.yml, or None. Core's config loader ignores
+    this key, so it's read here. Malformed YAML is already surfaced by ``_load_rule_config``;
+    swallow it here so we don't double-report."""
+    try:
+        data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    if isinstance(data, dict) and data.get("target") is not None:
+        return str(data["target"]).strip().lower()
+    return None
+
+
+def _resolve_target(flag: str | None, cfg_path: Path) -> str:
+    """The active SQL target: ``--target`` flag > rules.yml ``target:`` > default fabric-dw.
+    An invalid ``target:`` in the config is a friendly usage error, never a silent
+    wrong-target run (the flag is already constrained by click.Choice)."""
+    if flag:
+        return flag
+    cfg_target = _config_target(cfg_path)
+    if cfg_target is None:
+        return TARGETS[0]  # fabric-dw
+    if cfg_target not in TARGETS:
+        raise click.UsageError(
+            f"invalid `target:` in {cfg_path.as_posix()}: {cfg_target!r} (expected one of: {', '.join(TARGETS)})"
+        )
+    return cfg_target
+
+
+def _config_write_path(config_path: str | None, cfg_path: Path) -> Path:
+    """Where to WRITE ignores: --config if given; else the config THIS run actually read
+    from (``cfg_path``) when it exists — so ``--save-ignores`` appends to the file that
+    configured the run (e.g. a standards-side ``rules.yml``) instead of a brand-new
+    ``./rules.yml`` that would silently SHADOW it on the next run (issue #7). Never write
+    inside the installed package (the bundled-standards sibling — AGENTS.md forbids it);
+    fall back to ``./rules.yml`` there, and when no config file exists."""
+    if config_path:
+        return Path(config_path)
+    pkg_dir = Path(__file__).resolve().parent
+    if cfg_path.is_file() and not cfg_path.resolve().is_relative_to(pkg_dir):
+        return cfg_path
+    return Path.cwd() / "rules.yml"
 
 
 # The rules.yml `syntax_errors:` knob values (§3.4 of the syntax-errors plan):
@@ -420,9 +459,11 @@ def _pick_findings_to_ignore(findings):
     return list(selected or [])
 
 
-def _save_ignores_interactive(findings, config_path: str | None) -> None:
+def _save_ignores_interactive(findings, config_path: str | None, cfg_path: Path) -> None:
     """Let the user pick findings from this run to append to rules.yml's ignore
-    list, so they are silenced on the next run. Interactive-terminal only."""
+    list, so they are silenced on the next run. Interactive-terminal only.
+    ``cfg_path`` is the config this run READ from, so the ignore is written back to it
+    (not a shadowing ./rules.yml) — see :func:`_config_write_path`."""
     if not findings:
         click.echo("Nothing to ignore: this run reported no findings.", err=True)
         return
@@ -433,7 +474,7 @@ def _save_ignores_interactive(findings, config_path: str | None) -> None:
     if not selected:
         click.echo("No findings selected; the ignore list is unchanged.", err=True)
         return
-    target = _config_write_path(config_path)
+    target = _config_write_path(config_path, cfg_path)
     try:
         added = add_ignores(target, [_finding_ignore_entry(f) for f in selected])
     except (OSError, ValueError) as exc:
@@ -475,7 +516,7 @@ def cli(ctx: click.Context) -> None:
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["text", "json", "markdown", "html"]),
+    type=click.Choice(["text", "json", "markdown", "html", "sarif"]),
     default="text",
     show_default=True,
 )
@@ -501,6 +542,13 @@ def cli(ctx: click.Context) -> None:
     type=click.Path(),
     default=None,
     help="Also write a Markdown report to this path (composes with any --format).",
+)
+@click.option(
+    "--sarif",
+    "sarif_path",
+    type=click.Path(),
+    default=None,
+    help="Also write a SARIF 2.1.0 report to this path (for GitHub/ADO PR annotations; composes with any --format).",
 )
 @click.option(
     "--open/--no-open",
@@ -547,6 +595,14 @@ def cli(ctx: click.Context) -> None:
 )
 @click.option("--dialect", default="tsql", show_default=True, help="sqlglot dialect to parse with.")
 @click.option(
+    "--target",
+    type=click.Choice(["fabric-dw", "azure-sql"]),
+    default=None,
+    help="SQL target. fabric-dw (default) enforces Fabric DW type/feature limits; azure-sql "
+    "skips the Fabric-DW-only rules (Azure serverless SQL supports those types). Overrides a "
+    "`target:` key in rules.yml.",
+)
+@click.option(
     "--log-file",
     "log_file",
     type=click.Path(),
@@ -568,6 +624,7 @@ def check(
     output_path: str | None,
     html_path: str | None,
     md_path: str | None,
+    sarif_path: str | None,
     open_report: bool | None,
     color_flag: bool | None,
     min_severity: str,
@@ -575,6 +632,7 @@ def check(
     write_baseline_path: str | None,
     save_ignores: bool,
     dialect: str,
+    target: str | None,
     log_file: str | None,
     strict: bool,
 ) -> None:
@@ -585,7 +643,8 @@ def check(
     \b
     Report output:
       The text report prints to the screen. To redirect or save it:
-        --format text|json|markdown|html   choose the format (default: text)
+        --format text|json|markdown|html|sarif   choose the format (default: text)
+                                           (sarif = GitHub/ADO PR annotations)
         -o, --output FILE                  write that report to FILE
       --format html always writes a file: FILE if you give -o, otherwise
       coop-sql-review-report.html in the current folder — then opens it in
@@ -629,6 +688,11 @@ def check(
     config, syntax_mode = _load_rule_config(cfg_path)
     rules = apply_config(all_rules(), config)
     unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
+    # SQL target: skip rules that don't apply to it (e.g. Fabric-DW-only type rules under
+    # --target azure-sql). Resolved AFTER apply_config so an explicit enable/severity in
+    # rules.yml is still honored for the rules that DO apply.
+    active_target = _resolve_target(target, cfg_path)
+    rules = [r for r in rules if active_target in r.targets]
 
     # With no paths in an interactive terminal, offer a folder picker.
     if not paths and _stdio_interactive():
@@ -765,6 +829,10 @@ def check(
         rendered = to_markdown(result, version=__version__, standards=standards) + "\n"
     elif fmt == "html":
         rendered = to_html(result, version=__version__, standards=standards)
+    elif fmt == "sarif":
+        # Like json: renders to stdout unless -o is given (SARIF is file-oriented but a
+        # stdout dump pipes fine and keeps parity with the other machine formats).
+        rendered = to_sarif(result, version=__version__, standards=standards)
     else:
         body = console_lines(result, version=__version__, standards=standards, color=use_color)
         rendered = "\n".join(body) + "\n"
@@ -802,6 +870,8 @@ def check(
         _write_extra_report(
             md_path, to_markdown(result, version=__version__, standards=standards) + "\n", "Markdown"
         )
+    if sarif_path:
+        _write_extra_report(sarif_path, to_sarif(result, version=__version__, standards=standards), "SARIF")
 
     if log_file:
         try:
@@ -811,7 +881,7 @@ def check(
             raise click.ClickException(f"could not write log file {log_file}: {exc}") from exc
 
     if save_ignores:
-        _save_ignores_interactive(result.findings, config_path)
+        _save_ignores_interactive(result.findings, config_path, cfg_path)
 
     # --strict also fails when NOTHING was checked (files_checked == 0): a
     # typo'd path in CI must not pass as silently clean; and when any
@@ -840,6 +910,7 @@ def rules_cmd(fmt: str) -> None:
                 "tier": r.tier,
                 "kind": r.kind,
                 "default_enabled": r.default_enabled,
+                "targets": sorted(r.targets),
             }
             for r in rules
         ]
@@ -849,7 +920,9 @@ def rules_cmd(fmt: str) -> None:
     for r in rules:
         tag = "agent" if r.kind == "agent" else r.severity
         off = "" if r.default_enabled else "  [off by default]"
-        click.echo(f"  {r.id:26} [{tag:7}] T{r.tier} {r.standard_ref:5} {r.title}{off}")
+        # Flag rules that only apply under one target (e.g. Fabric-DW type limits).
+        scope = "" if set(r.targets) == set(TARGETS) else f"  [{'/'.join(sorted(r.targets))} only]"
+        click.echo(f"  {r.id:26} [{tag:7}] T{r.tier} {r.standard_ref:5} {r.title}{off}{scope}")
 
 
 def _run_upgrade(check_only: bool) -> None:

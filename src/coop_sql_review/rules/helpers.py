@@ -34,11 +34,14 @@ def exists_sites(parsed) -> list[tuple[int, bool]]:
     True for ``IF EXISTS`` / ``WHILE EXISTS`` existence guards, which §7's
     "explain why over COUNT/JOIN/IN" guidance does not apply to.
     """
+    if parsed._exists_sites is not None:
+        return parsed._exists_sites
     sites: list[tuple[int, bool]] = []
     for match in _EXISTS_RE.finditer(parsed.masked):
         line = parsed.line_of_offset(match.start())
         preceding = parsed.masked[max(0, match.start() - _GUARD_WINDOW) : match.start()]
         sites.append((line, bool(_GUARD_BEFORE_RE.search(preceding))))
+    parsed._exists_sites = sites
     return sites
 
 
@@ -48,9 +51,16 @@ def enclosing_object(node: exp.Expression) -> str:
     while current is not None:
         if isinstance(current, exp.Create):
             target = current.this
-            table = target.this if isinstance(target, exp.Schema) else target
-            if isinstance(table, exp.Table):
-                schema, name = table_parts(table)
+            # CREATE PROCEDURE parses to Create(this=StoredProcedure(this=Table)); unwrap
+            # the proc wrapper (and a Schema wrapper) so a finding inside a proc BODY is
+            # attributed to the proc, not "" — the whole estate is procs, and an empty
+            # object collapses the suppression fingerprint to (rule_id, message).
+            if isinstance(target, exp.StoredProcedure):
+                target = target.this
+            if isinstance(target, exp.Schema):
+                target = target.this
+            if isinstance(target, exp.Table):
+                schema, name = table_parts(target)
                 return f"{schema}.{name}"
             return ""
         current = current.parent
@@ -71,13 +81,18 @@ def dml_target(node: exp.Expression) -> str:
 
 
 def preceding_comment(parsed, line: int, within: int = 3) -> bool:
-    """True if a comment ends on one of the ``within`` lines just above ``line``.
+    """True if a comment explains the construct at ``line``: one ending ON that line
+    (a trailing ``-- why`` / ``/* why */``, the ``0 <=`` case) or up to ``within`` lines
+    above it, OR a block comment that spans the line. Blank lines between a preceding
+    comment and the construct are tolerated up to ``within``.
 
-    Used by rules that require an explaining comment immediately above a
-    construct (e.g. EXISTS). Blank lines between the comment and the construct
-    are tolerated up to ``within``.
+    ``0 <=`` (not ``0 <``) so a same-line trailing comment — a very common way to write
+    exactly the §7 explanation — counts; the old strict ``0 <`` flagged it as missing.
     """
-    return any(0 < line - comment.line_end <= within for comment in parsed.comments)
+    return any(
+        0 <= line - comment.line_end <= within or comment.line_start <= line <= comment.line_end
+        for comment in parsed.comments
+    )
 
 
 def projection_stars(select: exp.Select) -> list[exp.Expression]:

@@ -26,7 +26,6 @@ from coop_sql_review.identifiers import normalize_identifier
 # ``GO <count>`` (the execution count is irrelevant to linting; what matters is
 # that the statements after it stay in their own batch and are still checked).
 GO_LINE_RE = re.compile(r"^\s*GO(?:\s+\d+)?\s*;?\s*$", re.IGNORECASE)
-PROC_HEADER_RE = re.compile(r"\bCREATE\s+(?:OR\s+ALTER\s+)?PROC(?:EDURE)?\s+([\w\[\].]+)", re.IGNORECASE)
 
 
 def strip_bom(text: str) -> str:
@@ -101,18 +100,38 @@ _COMPOUND_ASSIGN_RE = re.compile(r"\bSET\b\s+@\w+\s*[-+*/%&|^]=", re.IGNORECASE)
 # "Expecting )" and a "'buckets' missing" (ClusteredByProperty) on the sort spec.
 _CLUSTERED_INDEX_RE = re.compile(r"\b(?:NON)?CLUSTERED\b", re.IGNORECASE)
 
+# Fabric DW GA constructs whose T-SQL sqlglot's tsql dialect can't parse but which
+# recover to a partial AST / opaque Command (so rules still see what parsed). Each is
+# a valid-T-SQL grammar gap, NOT invalid syntax — reported as parse_degraded, not
+# syntax_error, so --strict CI doesn't fail on correct Fabric SQL. Added after the
+# 2026-07 Fabric-DW surface-area review; each keyword is matched on the noncode-masked
+# batch (string/comment content blanked), so a mention in a literal can't trip it.
+_OPENROWSET_RE = re.compile(r"\bOPENROWSET\s*\(", re.IGNORECASE)  # OPENROWSET(BULK ... FORMAT=/DATA_SOURCE=)
+_TIME_TRAVEL_RE = re.compile(
+    r"\bFOR\s+TIMESTAMP\s+AS\s+OF\b", re.IGNORECASE
+)  # OPTION (FOR TIMESTAMP AS OF '...')
+_MASKED_WITH_RE = re.compile(r"\bMASKED\s+WITH\b", re.IGNORECASE)  # dynamic data masking column constraint
 
-def _description_is_gap(description: str, has_compound_assign: bool, has_clustered_index: bool) -> bool:
+
+def _description_is_gap(description: str, constructs: frozenset[str]) -> bool:
     """Whether one sqlglot error description is a known gap on *valid* T-SQL,
-    given what constructs the batch actually contains."""
+    given which gap-bearing constructs (``constructs``) the batch actually contains."""
     if description == _GENERIC_PARSE_ERROR:
         # Generic "unexpected token": the had_none guard in _is_sqlglot_gap has
         # already excluded its common genuinely-broken forms.
         return True
-    if has_compound_assign and description.startswith("Required keyword: 'this' missing"):
+    if "compound_assign" in constructs and description.startswith("Required keyword: 'this' missing"):
         return True  # compound-assignment operator (SET @v += x)
-    if has_clustered_index and (description == "Expecting )" or "'buckets' missing" in description):
+    if "clustered" in constructs and (description == "Expecting )" or "'buckets' missing" in description):
         return True  # CLUSTERED / NONCLUSTERED index or key constraint
+    if "openrowset" in constructs and description == "Expecting )":
+        return True  # OPENROWSET(BULK ...) named-option arg list (GA Apr 2025)
+    if "time_travel" in constructs and (
+        description == "Expecting )" or description.startswith("Unknown option FOR TIMESTAMP")
+    ):
+        return True  # statement-level time travel: OPTION (FOR TIMESTAMP AS OF '...')
+    if "masked" in constructs and description == "Expecting )":
+        return True  # MASKED WITH (FUNCTION='...') dynamic data masking
     return False
 
 
@@ -132,7 +151,10 @@ def _is_sqlglot_gap(masked_batch: str, descriptions: list[str], had_none: bool) 
     The known gaps (see ``AGENTS.md`` "sqlglot caveat") are: the generic
     ``Invalid expression / Unexpected token`` (after the ``had_none`` guard), the
     ``Required keyword: 'this' missing`` on a compound assignment (``SET @v += x``),
-    and the ``Expecting )`` / ``'buckets' missing`` on a ``CLUSTERED`` key/index.
+    the ``Expecting )`` / ``'buckets' missing`` on a ``CLUSTERED`` key/index, and the
+    Fabric-DW GA constructs ``OPENROWSET(BULK ...)``, the ``OPTION (FOR TIMESTAMP AS
+    OF '...')`` time-travel hint, and a ``MASKED WITH`` column (all recovering to a
+    partial AST / opaque ``Command``, each scoped by the keyword being present).
     Because the estate's real incident (a mangled CTE inside a stored proc) also
     raises ``column does not support CTE`` — a definitive description — it is never
     mistaken for a gap even though it, like the valid procs, recovers to an opaque
@@ -141,12 +163,18 @@ def _is_sqlglot_gap(masked_batch: str, descriptions: list[str], had_none: bool) 
     """
     if had_none or not descriptions:
         return False
-    has_compound_assign = _COMPOUND_ASSIGN_RE.search(masked_batch) is not None
-    has_clustered_index = _CLUSTERED_INDEX_RE.search(masked_batch) is not None
-    return all(
-        _description_is_gap(description, has_compound_assign, has_clustered_index)
-        for description in descriptions
+    constructs = frozenset(
+        name
+        for name, pattern in (
+            ("compound_assign", _COMPOUND_ASSIGN_RE),
+            ("clustered", _CLUSTERED_INDEX_RE),
+            ("openrowset", _OPENROWSET_RE),
+            ("time_travel", _TIME_TRAVEL_RE),
+            ("masked", _MASKED_WITH_RE),
+        )
+        if pattern.search(masked_batch) is not None
     )
+    return all(_description_is_gap(description, constructs) for description in descriptions)
 
 
 def parse_batch_strict(

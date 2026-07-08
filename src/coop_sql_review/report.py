@@ -48,7 +48,11 @@ def _sty(text: str, *codes: str, color: bool) -> str:
 # v2: fingerprints dropped the display path from their identity (rule_id, object,
 # message/note only), so baselines and rules.yml ignore lists survive a cwd/machine
 # change; baselines written under v1 must be regenerated once.
-SCHEMA_VERSION = 2
+# v3: for a finding with an EMPTY object, the fingerprint now substitutes the file
+# BASENAME for the object part, so object-less findings no longer collapse to one
+# fingerprint across files (a baselined one could otherwise silently hide a new one
+# elsewhere). Baselines/ignore lists holding object-less fingerprints regenerate once.
+SCHEMA_VERSION = 3
 
 
 def _verdict(result: Result) -> dict:
@@ -129,6 +133,116 @@ def json_text(result: Result, *, version: str, standards: dict[str, str]) -> str
     )
 
 
+# --- SARIF 2.1.0 (GitHub code scanning / Azure DevOps PR annotations) ----------------
+_SARIF_LEVEL = {"error": "error", "warning": "warning", "info": "note"}
+# The synthetic rule that carries error-severity diagnostics (real syntax errors, rule
+# crashes, unreadable files) so genuinely broken SQL still annotates the PR line.
+_SARIF_DIAG_RULE = "syntax-error"
+_SARIF_INFO_URI = "https://github.com/kabukisensei/coop-sql-review"
+
+
+def _sarif_location(uri: str, line: int) -> dict:
+    phys: dict = {"artifactLocation": {"uri": uri}}
+    if line:  # omit the region for file-level findings (line 0)
+        phys["region"] = {"startLine": line}
+    return {"physicalLocation": phys}
+
+
+def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
+    """A deterministic single-run SARIF 2.1.0 log (string + trailing LF).
+
+    Findings/agent-items/error-diagnostics become ``results`` with SARIF ``level``
+    (error/warning/note), a physical location, and ``partialFingerprints`` (GitHub uses
+    them to dedupe alerts across runs). Warning-severity diagnostics are advisory
+    processing notes and are intentionally NOT emitted. No timestamps -> byte-stable.
+    """
+    from coop_sql_review.rules import all_rules  # lazy: avoid an import cycle
+
+    rules = all_rules()
+    rule_index = {r.id: i for i, r in enumerate(rules)}
+    driver_rules: list[dict] = [
+        {
+            "id": r.id,
+            "name": r.id,
+            "shortDescription": {"text": r.title},
+            "defaultConfiguration": {"level": _SARIF_LEVEL.get(r.severity, "note")},
+            "properties": {
+                "standard_ref": r.standard_ref,
+                "tier": r.tier,
+                "category": r.category,
+                "targets": sorted(r.targets),
+            },
+        }
+        for r in rules
+    ]
+    diag_index = len(driver_rules)
+    driver_rules.append(
+        {
+            "id": _SARIF_DIAG_RULE,
+            "name": _SARIF_DIAG_RULE,
+            "shortDescription": {
+                "text": "A processing problem: a real T-SQL syntax error, a rule crash, or an unreadable file."
+            },
+            "defaultConfiguration": {"level": "error"},
+        }
+    )
+
+    results: list[dict] = []
+    for f in result.findings:
+        row = {
+            "ruleId": f.rule_id,
+            "level": _SARIF_LEVEL.get(f.severity, "note"),
+            "message": {"text": f.message},
+            "locations": [_sarif_location(f.file, f.line)],
+            "partialFingerprints": {"coopFingerprint/v2": f.fingerprint()},
+        }
+        if f.rule_id in rule_index:
+            row["ruleIndex"] = rule_index[f.rule_id]
+        results.append(row)
+    for a in result.agent_review:
+        row = {
+            "ruleId": a.rule_id,
+            "level": "note",  # judgment items are visible but never blocking
+            "message": {"text": a.note},
+            "locations": [_sarif_location(a.file, a.line)],
+            "partialFingerprints": {"coopFingerprint/v2": a.fingerprint()},
+        }
+        if a.rule_id in rule_index:
+            row["ruleIndex"] = rule_index[a.rule_id]
+        results.append(row)
+    for d in result.diagnostics:
+        if d.severity != "error":
+            continue  # warning-severity processing notes are not surfaced as SARIF results
+        results.append(
+            {
+                "ruleId": _SARIF_DIAG_RULE,
+                "ruleIndex": diag_index,
+                "level": "error",
+                "message": {"text": d.message},
+                "locations": [_sarif_location(d.file, d.line)],
+            }
+        )
+
+    log = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "coop-sql-review",
+                        "version": version,
+                        "informationUri": _SARIF_INFO_URI,
+                        "rules": driver_rules,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+    return json.dumps(log, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+
+
 def console_lines(
     result: Result,
     *,
@@ -197,6 +311,10 @@ def console_lines(
             if a.object:
                 head += f"   {a.object}"
             lines.append(head)
+            # Same clickable location line findings get — without it, an object-less agent
+            # item (e.g. SQL-TXN-SHORT) is literally unlocatable among the scanned files.
+            loc = f"{a.file}:{a.line}" if a.line else a.file
+            lines.append(indent + _sty(loc, "dim", color=color))
             for wrapped in textwrap.wrap(a.note, _REPORT_WIDTH - 9):
                 lines.append(indent + wrapped)
 
@@ -426,7 +544,9 @@ def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
         rows = "".join(
             f'<div class="f"><span class="chip info">agent</span>'
             f'<div class="head"><span class="rule">{_esc(a.rule_id)}</span> '
-            f"({_esc(a.standard_ref)}) &middot; {_esc(a.object)}</div>"
+            f"({_esc(a.standard_ref)}) &middot; "
+            f"{(_esc(a.object) + ' &middot; ') if a.object else ''}"
+            f"{_esc(a.file)}{(':' + _esc(a.line)) if a.line else ''}</div>"
             f'<div class="msg">{_esc(a.note)}</div></div>'
             for a in result.agent_review
         )

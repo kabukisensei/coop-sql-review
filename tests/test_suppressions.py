@@ -63,6 +63,27 @@ def test_agent_item_fingerprint_is_path_independent():
     assert a.fingerprint() != AgentReviewItem("SQL-X", "m.sql", "gold.u", 5, "note", "§5").fingerprint()
 
 
+def test_fingerprint_object_less_uses_basename_so_files_do_not_collapse():
+    # issue #3: with object="", the file BASENAME stands in for the object, so two files'
+    # object-less findings don't collapse to ONE fingerprint (which would let a baselined
+    # one silently hide a new one elsewhere). Only the basename participates, so it stays
+    # cwd-independent.
+    a = Finding("SQL-EXISTS-COMMENT", "info", "dir1/a.sql", 3, "", "explain why", "§7")
+    b = Finding("SQL-EXISTS-COMMENT", "info", "dir2/b.sql", 9, "", "explain why", "§7")
+    assert a.fingerprint() != b.fingerprint()  # different files -> different fingerprints
+    # ...but the SAME file seen from another cwd still collapses (basename is cwd-independent).
+    a_other_cwd = Finding("SQL-EXISTS-COMMENT", "info", "/abs/elsewhere/a.sql", 3, "", "explain why", "§7")
+    assert a.fingerprint() == a_other_cwd.fingerprint()
+
+
+def test_agent_item_object_less_uses_basename():
+    # Two files each with a BEGIN TRAN (SQL-TXN-SHORT emits object="", constant note)
+    # must produce DISTINCT agent-review fingerprints.
+    a = AgentReviewItem("SQL-TXN-SHORT", "a.sql", "", 5, "keep transactions short", "§X")
+    b = AgentReviewItem("SQL-TXN-SHORT", "b.sql", "", 5, "keep transactions short", "§X")
+    assert a.fingerprint() != b.fingerprint()
+
+
 def test_baseline_roundtrip_is_deduped_and_sorted(tmp_path):
     path = tmp_path / "bl.json"
     assert write_baseline(path, ["zzz", "aaa", "aaa"]) == 2  # de-duplicated
