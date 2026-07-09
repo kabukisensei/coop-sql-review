@@ -13,11 +13,12 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 
 ## Deterministic rules — build these
 
-> **SQL target.** Rules marked *(fabric-dw only)* enforce a Fabric Data Warehouse table
-> limitation that Azure (serverless) SQL does not share. They run by default (`--target
-> fabric-dw`); pass `--target azure-sql` (or set `target: azure-sql` in `rules.yml`) to skip
-> them. `coop-sql-review rules` marks them `[fabric-dw only]`, and `rules --format json`
-> carries a `targets` array per rule.
+> **SQL target.** Rules marked *(fabric-dw only)* enforce a Fabric Data Warehouse limitation
+> (table types, `ALTER COLUMN`) or a Fabric-only syntax surface (`OPTION(LABEL=...)`) that
+> Azure (serverless) SQL does not share. They run by default (`--target fabric-dw`); pass
+> `--target azure-sql` (or set `target: azure-sql` in `rules.yml`) to skip them.
+> `coop-sql-review rules` marks them `[fabric-dw only]`, and `rules --format json` carries a
+> `targets` array per rule.
 
 | Rule ID | § | What it flags | Sev | Method | Tier |
 |---|---|---|---|---|---|
@@ -28,7 +29,7 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 | `SQL-TYPE-MONEY` | 9 | `money`/`smallmoney` → `decimal(19,4)` (fabric-dw only) | warning | AST | 1 |
 | `SQL-TYPE-DEPRECATED` | 9 | `text` / `ntext` / `image` → `varchar(max)`/`varbinary(max)` | warning | AST | 1 |
 | `SQL-TYPE-UNSUPPORTED` | 9 | `tinyint`/`xml`/`json`/`geography`/`geometry`/CLR types for tables (fabric-dw only) | warning | AST | 1 |
-| `SQL-NO-ALTER-COLUMN` | 9 | `ALTER ... ALTER COLUMN` (Preview in Fabric DW — confirm the change is supported) | warning | AST/text | 1 |
+| `SQL-NO-ALTER-COLUMN` | 9 | `ALTER ... ALTER COLUMN` (Preview in Fabric DW — confirm the change is supported) (fabric-dw only) | warning | AST/text | 1 |
 | `SQL-SINGLETON-INSERT` | 9 | `INSERT ... VALUES` (esp. repeated singletons) | warning | AST | 1 |
 | `SQL-CTE-PREFIX` | 1 | CTE name not prefixed `cte_` | info | AST | 1 |
 | `SQL-TABLE-LAYER-NAME` | 1 | created table not `layer.object` (layer ∈ bronze/silver/gold) | info | AST | 2 |
@@ -39,7 +40,7 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 | `SQL-HEADER-COMMENT` | 10 | file missing header block (File/Purpose/Source/Author/Date) | info | text | 2 |
 | `SQL-SILVER-PASCALCASE` | 1 | silver/gold output alias not PascalCase | info | AST | 3 |
 | `SQL-DATE-FILTER-PARAM` | 11 | date/datetime literal in `WHERE` — ISO `'YYYY-MM-DD'` (optional time suffix) or compact `'YYYYMMDD'` (prefer a parameter) | info | AST | 3 |
-| `SQL-QUERY-LABEL` | 9 | ETL `INSERT` without `OPTION(LABEL=...)` | info | AST/text | 3 |
+| `SQL-QUERY-LABEL` | 9 | ETL `INSERT` without `OPTION(LABEL=...)` (fabric-dw only) | info | AST/text | 3 |
 | `SQL-CTAS-EXPLICIT-CAST` | 9 | CTAS with un-`CAST` aggregate outputs | info | AST | 3 |
 
 ## Agent-judgment rules — emit in `agent_review`, let the agent decide

@@ -45,9 +45,12 @@ User-facing usage docs live in `README.md` (written for readers with little term
 exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
 
 **SQL target (`--target`).** The linter runs against BOTH Microsoft Fabric Data Warehouse and
-Azure (serverless) SQL. Some §9 rules enforce a Fabric-DW-only table limitation (types Fabric DW
-rejects but Azure SQL accepts — `SQL-TYPE-MONEY`/`-DATETIME`/`-NVARCHAR`/`-UNSUPPORTED`); each
-carries `targets=FABRIC_ONLY` (`rules/base.py`). Resolution: `--target` flag > a `target:` key in
+Azure (serverless) SQL. Some §9 rules enforce a Fabric-DW-only limitation (types Fabric DW
+rejects but Azure SQL accepts — `SQL-TYPE-MONEY`/`-DATETIME`/`-NVARCHAR`/`-UNSUPPORTED`; the
+Preview-only `ALTER COLUMN` — `SQL-NO-ALTER-COLUMN`) or a Fabric-only syntax surface
+(`OPTION(LABEL=...)` — `SQL-QUERY-LABEL`); each carries `targets=FABRIC_ONLY` (`rules/base.py`).
+Rules kept on both targets must not assert Fabric-specific facts as universal — attribute the
+rationale in the message ("on Fabric DW ..."), as `SQL-SINGLETON-INSERT`/`SQL-TXN-SHORT` do. Resolution: `--target` flag > a `target:` key in
 `rules.yml` > default `fabric-dw`; a rule outside the active target is skipped (filtered in
 `cli.py` after `apply_config`, so a rule's own enable/severity override is still honored when it
 applies). `rules --format json` includes a `targets` array. NB: **IDENTITY columns are now

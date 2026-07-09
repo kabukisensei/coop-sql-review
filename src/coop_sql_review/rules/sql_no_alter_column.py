@@ -20,7 +20,7 @@ import re
 
 from coop_sql_review.finding import Finding
 from coop_sql_review.identifiers import qualify
-from coop_sql_review.rules.base import Rule, RuleContext
+from coop_sql_review.rules.base import FABRIC_ONLY, Rule, RuleContext
 
 _ALTER_COLUMN_RE = re.compile(
     r"\bALTER\s+TABLE\s+((?:\[[^\]]*\]|[#@\w.])+)\s+ALTER\s+COLUMN\b",
@@ -49,5 +49,8 @@ RULE = Rule(
     category="schema-evolution",
     standard_ref="§9",
     tier=1,
+    # The rule exists solely because of the Fabric DW limitation; ALTER COLUMN is
+    # plain GA T-SQL on Azure SQL, so there is nothing to say there.
+    targets=FABRIC_ONLY,
     check=check,
 )

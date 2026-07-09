@@ -5,6 +5,18 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [Unreleased]
+### Fixed
+- **Fabric-only rules no longer fire under `--target azure-sql`** (issue #12).
+  `SQL-NO-ALTER-COLUMN` (ALTER COLUMN is plain GA T-SQL on Azure SQL) and `SQL-QUERY-LABEL`
+  (`OPTION(LABEL=...)` is a Fabric/Synapse-only hint Azure SQL rejects) now carry
+  `targets=fabric-dw` and are skipped on azure-sql runs; `--target fabric-dw` behavior is
+  unchanged, and a rule's own `rules.yml` enable/severity override is still honored where the
+  rule applies. `SQL-SINGLETON-INSERT` and `SQL-TXN-SHORT` stay on both targets but their
+  messages now attribute the Fabric-specific rationale ("on Fabric DW each VALUES batch lands
+  a tiny Parquet file"; "on Fabric DW (snapshot-isolation only) ... on Azure SQL they hold
+  locks and log space") instead of asserting it universally.
+
 ## [0.9.0] — 2026-07-09
 ### Changed
 - **Adopt `coop-review-core` 0.4.0's consolidation layer** (issue #21; core issues #9/#10/#11/#12).

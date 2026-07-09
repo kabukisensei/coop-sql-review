@@ -141,9 +141,11 @@ A typical report looks like this:
 coop-sql-review check sql-folder --min-severity warning
 ```
 
-**Checking Azure SQL instead of Fabric?** Some rules flag types that Fabric Data Warehouse
-doesn't allow in tables (like `money`, `nvarchar`, `tinyint`, `xml`) — but Azure (serverless)
-SQL accepts those. Add `--target azure-sql` to skip the Fabric-only rules:
+**Checking Azure SQL instead of Fabric?** Some rules flag things that only matter on Fabric
+Data Warehouse: table types it doesn't allow (like `money`, `nvarchar`, `tinyint`, `xml`),
+`ALTER COLUMN` (Preview there, plain T-SQL on Azure SQL), and the Fabric-only
+`OPTION(LABEL=…)` hint — but Azure (serverless) SQL is fine with all of those. Add
+`--target azure-sql` to skip the Fabric-only rules:
 ```
 coop-sql-review check sql-folder --target azure-sql
 ```

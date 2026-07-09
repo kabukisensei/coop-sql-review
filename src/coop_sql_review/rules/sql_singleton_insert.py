@@ -32,8 +32,8 @@ def check(ctx: RuleContext) -> list[Finding]:
                 line=ctx.parsed.node_line(batch, insert),
                 object=dml_target(insert),
                 message=(
-                    f"INSERT ... VALUES ({rows} row(s)) — at scale this creates "
-                    "tiny files; prefer INSERT...SELECT or CTAS (§9)."
+                    f"INSERT ... VALUES ({rows} row(s)) — on Fabric DW each VALUES "
+                    "batch lands a tiny Parquet file; prefer INSERT...SELECT or CTAS (§9)."
                 ),
             )
         )

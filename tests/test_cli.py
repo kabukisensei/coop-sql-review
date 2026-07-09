@@ -845,6 +845,36 @@ def test_target_azure_sql_skips_fabric_only_type_rules(tmp_path):
     assert "SQL-TYPE-MONEY" not in azure_out and "SQL-TYPE-UNSUPPORTED" not in azure_out
 
 
+def test_target_azure_sql_skips_alter_column_and_query_label(tmp_path):
+    # ALTER COLUMN is plain GA T-SQL on Azure SQL, and OPTION(LABEL=...) is a
+    # Fabric/Synapse-only hint — so --target azure-sql skips SQL-NO-ALTER-COLUMN
+    # and SQL-QUERY-LABEL entirely (issue #12). The config enables the off-by-default
+    # SQL-QUERY-LABEL, proving the enable override is honored under fabric-dw but the
+    # target filter still wins under azure-sql (filter runs after apply_config).
+    f = tmp_path / "t.sql"
+    f.write_text(
+        "ALTER TABLE silver.t ALTER COLUMN c INT NOT NULL;\nINSERT INTO gold.t SELECT a FROM silver.s;\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules:\n  SQL-QUERY-LABEL:\n    enabled: true\n", encoding="utf-8")
+    fabric_out = CliRunner().invoke(cli, ["check", str(f), "--config", str(cfg)]).output
+    assert "SQL-NO-ALTER-COLUMN" in fabric_out and "SQL-QUERY-LABEL" in fabric_out
+    azure_out = (
+        CliRunner().invoke(cli, ["check", str(f), "--config", str(cfg), "--target", "azure-sql"]).output
+    )
+    assert "SQL-NO-ALTER-COLUMN" not in azure_out and "SQL-QUERY-LABEL" not in azure_out
+
+
+def test_rules_json_targets_for_fabric_gated_rules():
+    # The issue-#12 gating is visible in the machine rules listing.
+    res = CliRunner().invoke(cli, ["rules", "--format", "json"])
+    payload = json.loads(res.output)
+    for rule_id in ("SQL-NO-ALTER-COLUMN", "SQL-QUERY-LABEL"):
+        rule = next(r for r in payload if r["id"] == rule_id)
+        assert rule["targets"] == ["fabric-dw"], rule_id
+
+
 def test_target_from_rules_yml_is_honored(tmp_path):
     f = tmp_path / "t.sql"
     f.write_text("CREATE TABLE s.t (amt SMALLMONEY);\n", encoding="utf-8")

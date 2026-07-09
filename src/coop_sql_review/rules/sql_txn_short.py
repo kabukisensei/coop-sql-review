@@ -29,9 +29,9 @@ def detect(ctx: RuleContext) -> list[AgentReviewItem]:
                 object="",
                 line=ctx.parsed.line_of_offset(match.start()),
                 note=(
-                    "explicit transaction — verify it stays short; Fabric DW is "
-                    "snapshot-isolation only and long transactions widen the conflict "
-                    "window (§9)."
+                    "explicit transaction — verify it stays short; on Fabric DW "
+                    "(snapshot-isolation only) long transactions widen the conflict "
+                    "window, and on Azure SQL they hold locks and log space (§9)."
                 ),
             )
         )

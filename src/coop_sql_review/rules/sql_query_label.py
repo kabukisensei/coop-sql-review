@@ -22,7 +22,7 @@ from __future__ import annotations
 from sqlglot import exp
 
 from coop_sql_review.finding import Finding
-from coop_sql_review.rules.base import Rule, RuleContext
+from coop_sql_review.rules.base import FABRIC_ONLY, Rule, RuleContext
 from coop_sql_review.rules.helpers import dml_target
 
 
@@ -82,5 +82,8 @@ RULE = Rule(
     standard_ref="§9",
     tier=3,
     default_enabled=False,  # query labelling is a Fabric monitoring practice many skip; opt in via rules.yml
+    # OPTION(LABEL=...) is a Fabric/Synapse surface — Azure SQL rejects the hint, so
+    # recommending it there would be wrong advice, not just noise.
+    targets=FABRIC_ONLY,
     check=check,
 )

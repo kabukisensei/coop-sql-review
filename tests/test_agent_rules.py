@@ -283,6 +283,9 @@ def test_explicit_transaction_is_detected():
     assert items[0].rule_id == "SQL-TXN-SHORT"
     assert items[0].object == ""
     assert items[0].line == 1
+    # The rule runs on BOTH targets, so the snapshot-isolation rationale must be
+    # attributed to Fabric DW, not asserted universally (issue #12).
+    assert "on Fabric DW" in items[0].note
 
 
 def test_no_transaction_is_not_detected():

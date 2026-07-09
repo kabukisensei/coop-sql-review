@@ -27,6 +27,13 @@ def test_insert_select_not_flagged():
     assert findings == []
 
 
+def test_message_attributes_fabric_rationale():
+    # The rule runs on BOTH targets, so the tiny-Parquet-file rationale must be
+    # attributed to Fabric DW, not asserted universally (issue #12).
+    findings = run("INSERT INTO g.t VALUES (1)")
+    assert "on Fabric DW" in findings[0].message
+
+
 def test_multi_row_values_flagged_with_count():
     findings = run("INSERT INTO g.t (x, y) VALUES (1, 'a'), (2, 'b'), (3, 'c')")
     assert len(findings) == 1
