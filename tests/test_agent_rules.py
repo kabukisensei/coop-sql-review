@@ -58,6 +58,31 @@ def test_scd2_only_iscurrent_is_detected():
     assert len(run(SCD2_RULE, sql)) == 1
 
 
+SCD2_ALIASED_CLOSE = """\
+UPDATE {alias}
+SET {alias}.IsCurrent = 0, {alias}.ExpirationDate = s.EffectiveDate
+FROM silver.dim_customer AS {alias}
+JOIN silver.stg_customer AS s ON s.customer_id = {alias}.customer_id;
+"""
+
+
+def test_scd2_aliased_update_reports_real_table_not_alias():
+    # issue #14: `UPDATE d ... FROM silver.dim_customer AS d` binds the target
+    # by alias; the item must name the real table, never the nonexistent dbo.d.
+    items = run(SCD2_RULE, SCD2_ALIASED_CLOSE.format(alias="d"))
+    assert len(items) == 1
+    assert items[0].object == "silver.dim_customer"
+
+
+def test_scd2_aliased_update_fingerprint_is_alias_independent():
+    # Renaming the alias in a refactor must not change the item's fingerprint —
+    # otherwise a baselined/suppressed item resurrects as "new" (issue #14).
+    fingerprints = {
+        run(SCD2_RULE, SCD2_ALIASED_CLOSE.format(alias=alias))[0].fingerprint() for alias in ("d", "dim")
+    }
+    assert len(fingerprints) == 1
+
+
 SCD2_MERGE_CLOSE = (
     "MERGE silver.dim_customer AS t USING src AS s "
     "ON t.CustomerId=s.CustomerId "

@@ -81,25 +81,5 @@ def test_persisted_table_still_flagged_with_correct_object():
     assert findings[0].object == "silver.dim_x"
 
 
-# -- dml_target names a temp target faithfully (issue #13) -------------------
-
-
-def test_dml_target_preserves_temp_prefixes():
-    # A temp target must never render as dbo.<name> — that collides with a real
-    # table's suppression fingerprint. (Exercised via dml_target directly; the
-    # rule itself skips temp targets.)
-    from sqlglot import exp
-
-    from coop_sql_review.rules.helpers import dml_target
-
-    cases = {
-        "INSERT INTO #staging VALUES (1);": "#staging",
-        "INSERT INTO ##globals VALUES (1);": "##globals",
-        "INSERT INTO @rows VALUES (1);": "@rows",
-        "INSERT INTO [#Bracketed] (a) VALUES (1);": "#bracketed",
-        "INSERT INTO silver.dim_x VALUES (1);": "silver.dim_x",
-    }
-    for sql, expected in cases.items():
-        p = parse_sql("t.sql", sql)
-        (_, insert), *_ = p.find_all(exp.Insert)
-        assert dml_target(insert) == expected, sql
+# (dml_target's own naming behavior — temp prefixes, alias resolution — is unit
+# tested in tests/test_helpers.py.)

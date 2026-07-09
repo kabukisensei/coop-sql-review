@@ -102,12 +102,67 @@ def dml_target_table(node: exp.Expression) -> exp.Table | None:
     return target if isinstance(target, exp.Table) else None
 
 
+def _update_sources(update: exp.Update) -> list[exp.Table]:
+    """The top-level FROM/JOIN source tables of an ``UPDATE ... FROM``.
+
+    Deliberately does NOT ``find_all(exp.Table)`` — that would descend into
+    derived-table subqueries, whose inner tables must not capture the alias.
+    sqlglot hangs the join list off the first FROM source (and, defensively,
+    the Update node itself); the ``from`` arg key is ``from_`` on sqlglot 30
+    and ``from`` on older majors in the pin range.
+    """
+    frm = update.args.get("from_") or update.args.get("from")
+    if frm is None:
+        return []
+    sources: list[exp.Expression] = []
+    base = frm.this
+    if base is not None:
+        sources.append(base)
+        sources.extend(join.this for join in base.args.get("joins") or [])
+    sources.extend(join.this for join in update.args.get("joins") or [])
+    return [source for source in sources if isinstance(source, exp.Table)]
+
+
+def _resolve_update_alias(update: exp.Update, target: exp.Table) -> exp.Table | None:
+    """The FROM/JOIN source an aliased ``UPDATE alias ... FROM`` binds to, or ``None``.
+
+    T-SQL's idiomatic aliased update (``UPDATE d SET ... FROM silver.dim AS d``)
+    parses with the bare alias as ``Update.this``, so the naive target would be
+    the nonexistent ``dbo.d`` — an alias-dependent name whose suppression
+    fingerprint breaks on an alias rename and collides across procs (issue #14).
+    Resolution is attempted only for a one-part, non-temp target name; the alias
+    match wins over a table-name match, and no match falls back to today's
+    behavior (a genuine one-part table name resolves as before).
+    """
+    if target.text("db") or target.text("catalog") or is_temp_table(target):
+        return None
+    key = normalize_identifier(target.name)
+    by_alias: dict[str, exp.Table] = {}
+    by_name: dict[str, exp.Table] = {}
+    for source in _update_sources(update):
+        alias = normalize_identifier(source.alias) if source.alias else ""
+        if alias:
+            by_alias.setdefault(alias, source)
+        name = normalize_identifier(source.name)
+        if name:
+            by_name.setdefault(name, source)
+    return by_alias.get(key) or by_name.get(key)
+
+
 def dml_target(node: exp.Expression) -> str:
     """The name of the table an INSERT/UPDATE/DELETE/MERGE writes to, or "" —
     ``schema.name`` (normalized) for persisted tables, ``#``-/``@``-prefixed
-    for temp tables and table variables (see ``table_ref``)."""
+    for temp tables and table variables (see ``table_ref``). For the T-SQL
+    aliased-update form (``UPDATE d SET ... FROM silver.dim AS d``) the alias
+    is resolved through the FROM/JOIN sources to the real table."""
     target = dml_target_table(node)
-    return table_ref(target) if target is not None else ""
+    if target is None:
+        return ""
+    if isinstance(node, exp.Update):
+        resolved = _resolve_update_alias(node, target)
+        if resolved is not None:
+            return table_ref(resolved)
+    return table_ref(target)
 
 
 def preceding_comment(parsed, line: int, within: int = 3) -> bool:

@@ -7,6 +7,14 @@ field and are called out here.
 
 ## [Unreleased]
 ### Fixed
+- **Aliased updates are attributed to the real table, not the alias** (issue #14). For the
+  idiomatic T-SQL form `UPDATE d SET ... FROM silver.dim_customer AS d JOIN ...`,
+  `dml_target` now resolves the bare alias through the statement's FROM/JOIN sources, so
+  rules that name the write target (`SQL-SCD2-CORRECT`, `SQL-UPSERT-CHOICE`, ...) report
+  `silver.dim_customer` instead of the nonexistent `dbo.d` — and the suppression
+  fingerprint no longer changes when an alias is renamed (or collides across procs that
+  happen to use the same alias). A genuine one-part table name (no FROM match), qualified
+  targets, temp-table targets, and `MERGE`/`DELETE` behave exactly as before.
 - **`SQL-SINGLETON-INSERT` no longer flags temp-table / table-variable seeding, and temp
   objects are named faithfully** (issue #13). `INSERT INTO #staging/@rows ... VALUES` is a
   normal proc pattern — the tiny-Parquet-file rationale is about persisted user tables — so
