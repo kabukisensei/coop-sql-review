@@ -30,7 +30,7 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 | `SQL-TYPE-DEPRECATED` | 9 | `text` / `ntext` / `image` → `varchar(max)`/`varbinary(max)` | warning | AST | 1 |
 | `SQL-TYPE-UNSUPPORTED` | 9 | `tinyint`/`xml`/`json`/`geography`/`geometry`/CLR types for tables (fabric-dw only) | warning | AST | 1 |
 | `SQL-NO-ALTER-COLUMN` | 9 | `ALTER ... ALTER COLUMN` (Preview in Fabric DW — confirm the change is supported) (fabric-dw only) | warning | AST/text | 1 |
-| `SQL-SINGLETON-INSERT` | 9 | `INSERT ... VALUES` (esp. repeated singletons) | warning | AST | 1 |
+| `SQL-SINGLETON-INSERT` | 9 | `INSERT ... VALUES` (esp. repeated singletons); temp tables / table variables exempt | warning | AST | 1 |
 | `SQL-CTE-PREFIX` | 1 | CTE name not prefixed `cte_` | info | AST | 1 |
 | `SQL-TABLE-LAYER-NAME` | 1 | created table not `layer.object` (layer ∈ bronze/silver/gold) | info | AST | 2 |
 | `SQL-PREFER-CTE` | 4 | anonymous derived-table subquery in FROM (suggest a CTE) | info | AST | 2 |

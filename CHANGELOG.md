@@ -7,6 +7,13 @@ field and are called out here.
 
 ## [Unreleased]
 ### Fixed
+- **`SQL-SINGLETON-INSERT` no longer flags temp-table / table-variable seeding, and temp
+  objects are named faithfully** (issue #13). `INSERT INTO #staging/@rows ... VALUES` is a
+  normal proc pattern — the tiny-Parquet-file rationale is about persisted user tables — so
+  those inserts are skipped (top-level and inside proc bodies). And `dml_target` /
+  `enclosing_object` now preserve the `#`/`##`/`@` prefix when naming a temp object instead
+  of rendering it as `dbo.<name>`, so a temp target can never collide with a real table's
+  suppression fingerprint. Fingerprints for findings on persisted tables are unchanged.
 - **Fabric-only rules no longer fire under `--target azure-sql`** (issue #12).
   `SQL-NO-ALTER-COLUMN` (ALTER COLUMN is plain GA T-SQL on Azure SQL) and `SQL-QUERY-LABEL`
   (`OPTION(LABEL=...)` is a Fabric/Synapse-only hint Azure SQL rejects) now carry

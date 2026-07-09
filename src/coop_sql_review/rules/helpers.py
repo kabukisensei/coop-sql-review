@@ -11,7 +11,8 @@ import re
 
 from sqlglot import exp
 
-from coop_sql_review.sql_common import table_parts
+from coop_sql_review.identifiers import normalize_identifier
+from coop_sql_review.sql_common import is_temp_table, table_parts
 
 # EXISTS( as a predicate, located in code (comments/strings already masked out).
 _EXISTS_RE = re.compile(r"\b(?:NOT\s+)?EXISTS\s*\(", re.IGNORECASE)
@@ -45,8 +46,34 @@ def exists_sites(parsed) -> list[tuple[int, bool]]:
     return sites
 
 
+# The #/##/@ prefix at the start of a (bracket-stripped) rendered table name.
+_TEMP_PREFIX_RE = re.compile(r"(##?|@)")
+
+
+def table_ref(table: exp.Table) -> str:
+    """How findings name a table: ``schema.name`` (normalized, dbo-defaulted)
+    for persisted tables; the ``#``/``##``/``@``-prefixed bare name for temp
+    tables and table variables. sqlglot normalizes the prefix away
+    (``#staging`` -> name ``staging``), so rendering the normalized parts would
+    produce ``dbo.staging`` — the wrong name, whose suppression fingerprint
+    collides with a REAL table called ``dbo.staging`` (issue #13). The prefix
+    is recovered from the rendered SQL, where sqlglot preserves it.
+    """
+    if is_temp_table(table):
+        name = normalize_identifier(table.name)
+        if name.startswith(("#", "@")):
+            return name  # some parses keep the prefix on the identifier itself
+        rendered = table.sql(dialect="tsql").lstrip("[")
+        match = _TEMP_PREFIX_RE.match(rendered)
+        prefix = match.group(1) if match else "#"
+        return f"{prefix}{name}"
+    schema, name = table_parts(table)
+    return f"{schema}.{name}"
+
+
 def enclosing_object(node: exp.Expression) -> str:
-    """``schema.name`` (normalized) of the CREATE that encloses ``node``, or ""."""
+    """``schema.name`` (normalized) of the CREATE that encloses ``node``, or ""
+    (``#``-/``@``-prefixed for a temp table — same convention as ``table_ref``)."""
     current = node.parent
     while current is not None:
         if isinstance(current, exp.Create):
@@ -60,24 +87,27 @@ def enclosing_object(node: exp.Expression) -> str:
             if isinstance(target, exp.Schema):
                 target = target.this
             if isinstance(target, exp.Table):
-                schema, name = table_parts(target)
-                return f"{schema}.{name}"
+                return table_ref(target)
             return ""
         current = current.parent
     return ""
 
 
-def dml_target(node: exp.Expression) -> str:
-    """``schema.name`` (normalized) of the table an INSERT/UPDATE/DELETE/MERGE
-    writes to, or "". Handles ``INSERT INTO t (cols)`` where ``this`` is a
-    Schema wrapping the Table."""
+def dml_target_table(node: exp.Expression) -> exp.Table | None:
+    """The Table node an INSERT/UPDATE/DELETE/MERGE writes to, or ``None``.
+    Handles ``INSERT INTO t (cols)`` where ``this`` is a Schema wrapping the Table."""
     target = node.this
     if isinstance(target, exp.Schema):
         target = target.this
-    if isinstance(target, exp.Table):
-        schema, name = table_parts(target)
-        return f"{schema}.{name}"
-    return ""
+    return target if isinstance(target, exp.Table) else None
+
+
+def dml_target(node: exp.Expression) -> str:
+    """The name of the table an INSERT/UPDATE/DELETE/MERGE writes to, or "" —
+    ``schema.name`` (normalized) for persisted tables, ``#``-/``@``-prefixed
+    for temp tables and table variables (see ``table_ref``)."""
+    target = dml_target_table(node)
+    return table_ref(target) if target is not None else ""
 
 
 def preceding_comment(parsed, line: int, within: int = 3) -> bool:
