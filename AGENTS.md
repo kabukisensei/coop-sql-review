@@ -458,3 +458,20 @@ Carried from coop-data-doc's hard-won lessons:
   (`make release-check` enforces this).
 - The company CLI playbook — shared CLI conventions; the `coop-data-doc` tool — the reference
   implementation the skeleton + SQL helpers were lifted from.
+
+## Working the backlog (agents)
+
+This repo's work queue is its GitHub issues labeled **`agent:ready`**:
+`gh issue list --label agent:ready --state open`. Each issue is self-contained
+(Context / Problem / Proposed fix / Acceptance criteria). Rules of engagement:
+
+- Read this file fully first; take ONE issue at a time (oldest first unless one
+  blocks another).
+- Implement to the acceptance criteria; run the full test suite + lint before
+  every commit; commit with `Fixes #N` so the issue closes on push.
+- Never push tags, release, or bump versions — Aaron releases (see the release
+  rules above).
+- An open issue WITHOUT the `agent:ready` label is waiting on a human decision —
+  leave it alone.
+- **#16 (fingerprint schema v4) must be implemented together with
+  coop-dax-review#14** — one coordinated family identity bump, or not at all.
