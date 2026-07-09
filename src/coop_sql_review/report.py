@@ -139,6 +139,13 @@ _SARIF_LEVEL = {"error": "error", "warning": "warning", "info": "note"}
 # crashes, unreadable files) so genuinely broken SQL still annotates the PR line.
 _SARIF_DIAG_RULE = "syntax-error"
 _SARIF_INFO_URI = "https://github.com/kabukisensei/coop-sql-review"
+# partialFingerprints KEY, deliberately frozen at v2. GitHub code scanning matches alerts
+# across runs by (key, value) pair; renaming the key to v3 would orphan every existing
+# alert and re-open it as new. The VALUES are the current schema_version-3 identities
+# (Finding/AgentReviewItem.fingerprint(): empty objects fall back to the file basename) —
+# only the label stays put. Bump the key only if a future scheme changes identities so
+# broadly that a clean alert reset is the better trade.
+_SARIF_FINGERPRINT_KEY = "coopFingerprint/v2"
 
 
 def _sarif_location(uri: str, line: int) -> dict:
@@ -194,7 +201,7 @@ def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
             "level": _SARIF_LEVEL.get(f.severity, "note"),
             "message": {"text": f.message},
             "locations": [_sarif_location(f.file, f.line)],
-            "partialFingerprints": {"coopFingerprint/v2": f.fingerprint()},
+            "partialFingerprints": {_SARIF_FINGERPRINT_KEY: f.fingerprint()},
         }
         if f.rule_id in rule_index:
             row["ruleIndex"] = rule_index[f.rule_id]
@@ -205,7 +212,7 @@ def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
             "level": "note",  # judgment items are visible but never blocking
             "message": {"text": a.note},
             "locations": [_sarif_location(a.file, a.line)],
-            "partialFingerprints": {"coopFingerprint/v2": a.fingerprint()},
+            "partialFingerprints": {_SARIF_FINGERPRINT_KEY: a.fingerprint()},
         }
         if a.rule_id in rule_index:
             row["ruleIndex"] = rule_index[a.rule_id]

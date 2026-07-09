@@ -90,20 +90,21 @@ A typical report looks like this:
 ========================================================================
   coop-sql-review                                   SQL standards report
 ========================================================================
-  standards: standards.md    files checked: 1    v0.2.0
+  standards: standards.md    files checked: 1    v0.7.1
 
   silver/dim_customer.sql
   ----------------------------------------------------------------------
-   ERROR SQL-NO-ALTER-COLUMN  §9   silver.dim_customer
+   WARN  SQL-NO-ALTER-COLUMN  §9   silver.dim_customer
          silver/dim_customer.sql:4
-         ALTER COLUMN is not supported in Fabric DW — use the CTAS +
-         RENAME workaround (§9).
+         ALTER COLUMN is Preview in Fabric DW — confirm the specific
+         change is supported, or use the CTAS + RENAME workaround (§9).
    WARN  SQL-NO-SELECT-STAR  §11   silver.dim_customer
          silver/dim_customer.sql:12
-         SELECT * in production code — list the columns explicitly (§11).
+         SELECT * in production code — list the columns explicitly
+         (§11).
 
 ========================================================================
-  SUMMARY    1 error   1 warning   0 info
+  SUMMARY    0 error   2 warning   0 info
 ========================================================================
   Advisory only - nothing was changed or blocked.
 ```
@@ -113,7 +114,9 @@ A typical report looks like this:
   **`file:line`** location and the message. At a terminal the report is colorized; piped or
   redirected (or with `--no-color`, or `NO_COLOR` set) it falls back to plain text.
 - **Severities:**
-  - **error** — almost certainly broken in Fabric (e.g. `ALTER COLUMN`, which Fabric rejects).
+  - **error** — almost certainly broken. No bundled rule ships at this level today (you can raise
+    any rule to `error` in `rules.yml`); a genuinely invalid file surfaces as an error-level
+    `syntax_error` *diagnostic* instead (see below).
   - **warning** — against the standard; worth fixing.
   - **info** — a style/nice-to-have suggestion.
 - **Diagnostics** (a separate section, if shown) are *processing* notes — e.g. "this statement

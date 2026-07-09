@@ -24,7 +24,7 @@ Two non-negotiable invariants shape every design decision:
 Two audiences: a human console report and **machine JSON** (`--format json`) consumed by the
 company analytics agent, which layers semantic judgment via the `agent_review` list.
 
-**Status: fully built.** All 30 rules across `RULES.md` (Tier-1/2/3 deterministic, the
+**Status: fully built.** All 32 rules across `RULES.md` (Tier-1/2/3 deterministic, the
 agent-judgment rules, and the checkable `docs/standards-proposed-additions.md` rules §A–§F) are
 implemented, adversarially verified, and green (full suite passing). Published to PyPI (live
 via the `v*`-tag trusted-publishing workflow). Remaining roadmap is operational: wire into the
@@ -36,9 +36,9 @@ User-facing usage docs live in `README.md` (written for readers with little term
 
 `check` (the main one), `rules` (list all rules), `help [command]`, `upgrade` / `update`
 (the only networked command), `--version`. `check` options: `--standards`,
-`--config <rules.yml>`, `--format text|json|markdown|html`, `-o/--output <file>`,
-`--html <file>` / `--md/--markdown <file>` (extra report sinks — compose with `--format`, never
-open a browser; via `cli._write_extra_report`), `--open/--no-open`, `--color/--no-color`,
+`--config <rules.yml>`, `--format text|json|markdown|html|sarif`, `-o/--output <file>`,
+`--html <file>` / `--md/--markdown <file>` / `--sarif <file>` (extra report sinks — compose with
+`--format`, never open a browser; via `cli._write_extra_report`), `--open/--no-open`, `--color/--no-color`,
 `--min-severity`, `--baseline`, `--write-baseline`, `--save-ignores` (interactive; see below),
 `--dialect`, `--target fabric-dw|azure-sql`, `--log-file`, `--strict` (opt-in CI gate →
 exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
@@ -323,7 +323,9 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
   ratcheting on a legacy estate. Both filter findings **and `agent_review` items** in `check` before
   the `--min-severity` floor (`--write-baseline` records agent fingerprints too). Fingerprints are
   path-free — `(rule_id, object, message/note)`, no file, no line — so baselines/ignores survive a
-  cwd or machine change (schema_version 2; same identity rule as coop-dax-review).
+  cwd or machine change (schema_version 3: an empty `object` falls back to the file **basename** so
+  object-less findings in different files don't collapse to one fingerprint; coop-dax-review is
+  still on its v2 identity, so the two tools' fingerprint rules are no longer identical).
 - **`rules.yml` `ignore:` list** — a third, human-readable suppression: fingerprint-matched entries
   living in the writable `rules.yml` (`RuleConfig.ignored_fingerprints` from core). `check` filters
   findings and `agent_review` items right after the baseline block, before the `--min-severity`
