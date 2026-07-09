@@ -241,10 +241,15 @@ def test_open_flag_forces_open(tmp_path, monkeypatch):
 
 
 def test_no_open_flag_suppresses_even_when_interactive(monkeypatch):
+    from coop_review_core import cliutils
+
     from coop_sql_review import cli as climod
 
     # Pretend we are interactive so the only thing keeping the browser shut is --no-open.
-    monkeypatch.setattr(climod, "_stdio_interactive", lambda: True)
+    # _should_open_report is core's should_open_report, which consults core's own
+    # stdio_interactive — patch it there (climod._stdio_interactive is the same function,
+    # but core's internal call resolves in the core module).
+    monkeypatch.setattr(cliutils, "stdio_interactive", lambda: True)
     assert climod._should_open_report("html", False) is False
     assert climod._should_open_report("html", None) is True  # auto opens when interactive
     # The open behavior is HTML-only: a non-HTML format never opens, even with
@@ -271,7 +276,8 @@ def test_upgrade_shows_command_without_applying(monkeypatch):
     result = CliRunner().invoke(cli, ["upgrade"])
     assert result.exit_code == 0
     assert "pipx upgrade coop-sql-review" in result.output
-    assert "open a new terminal" in result.output
+    # core 0.4.0's unified closing message (cliutils.run_upgrade)
+    assert "This tool does not update itself. To update, exit coop-sql-review and run:" in result.output
 
 
 def test_markdown_format(tmp_path):
@@ -492,6 +498,87 @@ def test_config_autodiscovery_absence_is_silent(tmp_path, monkeypatch):
     result = CliRunner().invoke(cli, ["check", "q.sql"])
     assert result.exit_code == 0
     assert "config" not in result.output.lower()
+
+
+# --- unified config discovery (core 0.4.0 / coop-review-core#12): env var,
+#     tool-named config file, git-style parent walk-up, rules.yml deprecation ---
+
+_DISABLE_STAR_RULE = "rules:\n  SQL-NO-SELECT-STAR:\n    enabled: false\n"
+
+
+def test_env_var_config_is_honored(tmp_path, monkeypatch):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    cfg = tmp_path / "team-config.yml"
+    cfg.write_text(_DISABLE_STAR_RULE, encoding="utf-8")
+    monkeypatch.setenv("COOP_SQL_REVIEW_CONFIG", str(cfg))
+    out = CliRunner().invoke(cli, ["check", str(f)]).output
+    assert "SQL-NO-SELECT-STAR" not in out  # the env-named config disabled the rule
+
+
+def test_env_var_config_missing_is_usage_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("COOP_SQL_REVIEW_CONFIG", str(tmp_path / "nope.yml"))
+    result = CliRunner().invoke(cli, ["check", FIXTURE])
+    assert result.exit_code == 2  # a misconfiguration, never a silent fallback
+    assert "COOP_SQL_REVIEW_CONFIG" in result.output and "not found" in result.output
+
+
+def test_explicit_config_beats_env_var(tmp_path, monkeypatch):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    env_cfg = tmp_path / "env.yml"
+    env_cfg.write_text(_DISABLE_STAR_RULE, encoding="utf-8")
+    flag_cfg = tmp_path / "flag.yml"
+    flag_cfg.write_text("rules: {}\n", encoding="utf-8")
+    monkeypatch.setenv("COOP_SQL_REVIEW_CONFIG", str(env_cfg))
+    out = CliRunner().invoke(cli, ["check", str(f), "--config", str(flag_cfg)]).output
+    assert "SQL-NO-SELECT-STAR" in out  # --config won, so the rule stayed enabled
+
+
+def test_tool_named_config_preferred_and_shadow_note_on_stderr(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+    (tmp_path / "coop-sql-review.yml").write_text(_DISABLE_STAR_RULE, encoding="utf-8")
+    (tmp_path / "rules.yml").write_text("rules: {}\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", "q.sql"])
+    assert result.exit_code == 0
+    assert "SQL-NO-SELECT-STAR" not in result.stdout  # the tool-named file won
+    assert "shadowed" in result.stderr  # the note is a stderr one-liner
+    assert "SQL-NO-SELECT-STAR" not in result.stderr
+
+
+def test_rules_yml_discovery_emits_deprecation_note_on_stderr(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "q.sql").write_text("SELECT a FROM t;\n", encoding="utf-8")
+    (tmp_path / "rules.yml").write_text("rules: {}\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", "q.sql"])
+    assert result.exit_code == 0  # rules.yml keeps working...
+    assert "deprecated shared name" in result.stderr  # ...with a rename nudge
+    assert "coop-sql-review.yml" in result.stderr
+    assert "deprecated" not in result.stdout  # never pollutes the report stream
+
+
+def test_config_discovered_in_a_parent_directory(tmp_path, monkeypatch):
+    (tmp_path / "coop-sql-review.yml").write_text(_DISABLE_STAR_RULE, encoding="utf-8")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+    monkeypatch.chdir(sub)  # git-style walk-up finds the parent's config
+    out = CliRunner().invoke(cli, ["check", "q.sql"]).output
+    assert "SQL-NO-SELECT-STAR" not in out
+
+
+def test_walk_up_never_crosses_a_git_root(tmp_path, monkeypatch):
+    # A config OUTSIDE the repository must never silently apply.
+    (tmp_path / "rules.yml").write_text(_DISABLE_STAR_RULE, encoding="utf-8")
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    sub = repo / "sql"
+    sub.mkdir()
+    (sub / "q.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+    monkeypatch.chdir(sub)
+    out = CliRunner().invoke(cli, ["check", "q.sql"]).output
+    assert "SQL-NO-SELECT-STAR" in out  # the outside-the-repo config did NOT apply
 
 
 # --- --write-baseline to a bad path: friendly error, not a traceback ---

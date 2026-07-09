@@ -24,7 +24,8 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "coop-review-core>=0.3.0",
+    # Capped per core's pin policy (core AGENTS.md): bump the cap with each core release.
+    "coop-review-core>=0.4,<0.5",
     "PyYAML>=6.0",
     # Floor at 26: the parser relies on the >=26 NotNullColumnConstraint
     # `allow_null` semantics (25.x is inverted -> wrong column nullability).
@@ -50,8 +51,8 @@ path = "src/coop_sql_review/__init__.py"   # the single source of truth for the 
 packages = ["src/coop_sql_review"]
 
 [tool.hatch.build]
-# Ship the bundled standards (so `check` works with no --standards) and the
-# logo (for the branded HTML report).
+# Ship the bundled standards (so `check` works with no --standards). The HTML
+# report's logo ships with coop-review-core (report.logo_data_uri), not here.
 include = ["src/coop_sql_review/**/*.py", "src/coop_sql_review/data/*"]
 
 [tool.pytest.ini_options]

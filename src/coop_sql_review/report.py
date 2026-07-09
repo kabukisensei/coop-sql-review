@@ -4,15 +4,41 @@ diagnostics log. All are deterministic (sorted, sort_keys + ensure_ascii on
 JSON, LF newlines) so output is byte-identical across runs and operating
 systems; HTML/Markdown are offline (inline CSS, no network) and HTML-escape
 all dynamic text.
+
+The tool-agnostic pieces — the ASCII console chrome, the branded HTML style +
+logo, the JSON envelope/verdict, the diagnostics log, and the SARIF emitter —
+live in ``coop_review_core.report`` (core 0.4.0, issues #9/#11); this module
+renders THIS tool's ``Result`` through them and keeps everything tool-specific
+(the finding/agent-review JSON shapes, the console/markdown/HTML layouts, and
+the SARIF driver metadata).
 """
 
 from __future__ import annotations
 
-import base64
-import html
-import json
 import textwrap
 from pathlib import Path
+
+from coop_review_core.report import (
+    BADGE,
+    BADGE_COLOR,
+    HTML_STYLE,
+    REPORT_WIDTH,
+    SARIF_LEVEL,
+    build_envelope,
+    chip,
+    diagnostic_json,
+    envelope_text,
+    esc,
+    logo_data_uri,
+    sty,
+    verdict,
+)
+from coop_review_core.report import (
+    log_text as _core_log_text,
+)
+from coop_review_core.report import (
+    to_sarif as _core_to_sarif,
+)
 
 from coop_sql_review.engine import Result
 from coop_sql_review.finding import SEVERITIES
@@ -20,28 +46,8 @@ from coop_sql_review.finding import SEVERITIES
 # The terminal report's chrome (banner, badges, labels) stays ASCII so it is
 # safe on a legacy Windows console (cp1252/cp437) and the no-color output is
 # byte-stable; finding messages pass through as authored. Color is layered on
-# only when the caller asks for it (an interactive terminal) — and ANSI escape
-# bytes are themselves ASCII, so even the colored chrome stays cp1252-safe.
-_REPORT_WIDTH = 72
-_BADGE = {"error": "ERROR", "warning": "WARN ", "info": "INFO "}
-_BADGE_COLOR = {"error": "red", "warning": "yellow", "info": "blue"}
-_ANSI = {
-    "reset": "\033[0m",
-    "bold": "\033[1m",
-    "dim": "\033[2m",
-    "red": "\033[31m",
-    "yellow": "\033[33m",
-    "blue": "\033[34m",
-    "cyan": "\033[36m",
-}
-
-
-def _sty(text: str, *codes: str, color: bool) -> str:
-    """Wrap text in ANSI codes when ``color`` is on; return it unchanged otherwise."""
-    if not color or not codes:
-        return text
-    return "".join(_ANSI[c] for c in codes) + text + _ANSI["reset"]
-
+# only when the caller asks for it (an interactive terminal) — the chrome
+# constants and `sty` come from coop_review_core.report.
 
 # The agent JSON contract version. Bump on any breaking change to the shape so a
 # consumer can pin/branch on it; additive fields don't require a bump.
@@ -56,103 +62,78 @@ SCHEMA_VERSION = 3
 
 
 def _verdict(result: Result) -> dict:
-    """A compact, advisory machine verdict the agent can route on (never a gate).
+    """This tool's inputs to core's advisory :func:`coop_review_core.report.verdict`:
+    the per-severity summary, whether findings remain, and whether an error-severity
+    diagnostic (a genuine syntax error, a rule crash, an unreadable file) compromised
+    coverage — which makes the run **not clean** even with zero findings."""
+    return verdict(
+        result.summary(),
+        has_findings=bool(result.findings),
+        has_error_diagnostic=any(d.severity == "error" for d in result.diagnostics),
+    )
 
-    An error-severity diagnostic (a genuine syntax error, a rule crash, an
-    unreadable file) makes the run **not clean** even with zero findings — the
-    tool's coverage of that file is compromised, which the agent must not read as
-    a clean pass. It is also the most severe signal the tool can emit, so it sets
-    ``highest_severity`` to ``error``.
-    """
-    summary = result.summary()
-    present = [s for s in SEVERITIES if summary[s]]
-    has_error_diagnostic = any(d.severity == "error" for d in result.diagnostics)
-    highest = "error" if has_error_diagnostic else (present[0] if present else None)
-    return {"clean": not result.findings and not has_error_diagnostic, "highest_severity": highest}
+
+def _finding_json(f) -> dict:
+    """One finding as the JSON dict the envelope (and the SARIF emitter) consume."""
+    return {
+        "rule_id": f.rule_id,
+        "severity": f.severity,
+        "file": f.file,
+        "line": f.line,
+        "object": f.object,
+        "message": f.message,
+        "standard_ref": f.standard_ref,
+        "fingerprint": f.fingerprint(),  # stable, line- and path-independent identity
+    }
+
+
+def _agent_json(a) -> dict:
+    """One agent-review item as the JSON dict the envelope (and SARIF) consume."""
+    return {
+        "rule_id": a.rule_id,
+        "file": a.file,
+        "object": a.object,
+        "line": a.line,
+        "note": a.note,
+        "standard_ref": a.standard_ref,
+        "fingerprint": a.fingerprint(),
+    }
 
 
 def to_json(result: Result, *, version: str, standards: dict[str, str]) -> dict:
-    """The agent contract: stable keys, sorted, deterministic."""
-    return {
-        "tool": "coop-sql-review",
-        "schema_version": SCHEMA_VERSION,
-        "version": version,
-        "standards": {"path": standards.get("path", ""), "sha256": standards.get("sha256", "")},
-        "files_checked": result.files_checked,  # lets the agent tell "clean" from "nothing parsed"
-        "verdict": _verdict(result),
-        "findings": [
-            {
-                "rule_id": f.rule_id,
-                "severity": f.severity,
-                "file": f.file,
-                "line": f.line,
-                "object": f.object,
-                "message": f.message,
-                "standard_ref": f.standard_ref,
-                "fingerprint": f.fingerprint(),  # stable, line- and path-independent identity
-            }
-            for f in result.findings
-        ],
-        "summary": result.summary(),
-        "agent_review": [
-            {
-                "rule_id": a.rule_id,
-                "file": a.file,
-                "object": a.object,
-                "line": a.line,
-                "note": a.note,
-                "standard_ref": a.standard_ref,
-                "fingerprint": a.fingerprint(),
-            }
-            for a in result.agent_review
-        ],
-        "diagnostics": [
-            {
-                "severity": d.severity,
-                "category": d.category,
-                "file": d.file,
-                "line": d.line,
-                "message": d.message,
-                "rule_id": d.rule_id,
-            }
-            for d in result.diagnostics
-        ],
-    }
+    """The agent contract: stable keys, sorted, deterministic. The envelope shape
+    is core's (:func:`coop_review_core.report.build_envelope`); the finding /
+    agent-review dicts are this tool's."""
+    return build_envelope(
+        tool="coop-sql-review",
+        schema_version=SCHEMA_VERSION,
+        version=version,
+        standards=standards,
+        checked_key="files_checked",  # lets the agent tell "clean" from "nothing parsed"
+        checked=result.files_checked,
+        verdict=_verdict(result),
+        findings=[_finding_json(f) for f in result.findings],
+        summary=result.summary(),
+        agent_review=[_agent_json(a) for a in result.agent_review],
+        diagnostics=[diagnostic_json(d) for d in result.diagnostics],
+    )
 
 
 def json_text(result: Result, *, version: str, standards: dict[str, str]) -> str:
     """JSON string with a trailing newline, sorted keys, LF line endings."""
-    return (
-        json.dumps(
-            to_json(result, version=version, standards=standards),
-            indent=2,
-            sort_keys=True,
-            ensure_ascii=True,  # pure-ASCII output: deterministic + safe on any Windows console
-        )
-        + "\n"
-    )
+    return envelope_text(to_json(result, version=version, standards=standards))
 
 
 # --- SARIF 2.1.0 (GitHub code scanning / Azure DevOps PR annotations) ----------------
-_SARIF_LEVEL = {"error": "error", "warning": "warning", "info": "note"}
-# The synthetic rule that carries error-severity diagnostics (real syntax errors, rule
-# crashes, unreadable files) so genuinely broken SQL still annotates the PR line.
-_SARIF_DIAG_RULE = "syntax-error"
 _SARIF_INFO_URI = "https://github.com/kabukisensei/coop-sql-review"
-# partialFingerprints KEY, deliberately frozen at v2. GitHub code scanning matches alerts
-# across runs by (key, value) pair; renaming the key to v3 would orphan every existing
-# alert and re-open it as new. The VALUES are the current schema_version-3 identities
-# (Finding/AgentReviewItem.fingerprint(): empty objects fall back to the file basename) —
-# only the label stays put. Bump the key only if a future scheme changes identities so
-# broadly that a clean alert reset is the better trade.
-_SARIF_FINGERPRINT_KEY = "coopFingerprint/v2"
-
-
-def _sarif_location(uri: str, line: int) -> dict:
-    phys: dict = {"artifactLocation": {"uri": uri}}
-    if line:  # omit the region for file-level findings (line 0)
-        phys["region"] = {"startLine": line}
-    return {"physicalLocation": phys}
+# The partialFingerprints KEY stays deliberately frozen at core's default
+# ("coopFingerprint/v2"). GitHub code scanning matches alerts across runs by
+# (key, value) pair; renaming the key to v3 would orphan every existing alert and
+# re-open it as new. The VALUES are the current schema_version-3 identities
+# (Finding/AgentReviewItem.fingerprint(): empty objects fall back to the file
+# basename) — only the label stays put. Bump the key (core `to_sarif`'s
+# ``fingerprint_key``) only if a future scheme changes identities so broadly that
+# a clean alert reset is the better trade.
 
 
 def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
@@ -162,17 +143,19 @@ def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
     (error/warning/note), a physical location, and ``partialFingerprints`` (GitHub uses
     them to dedupe alerts across runs). Warning-severity diagnostics are advisory
     processing notes and are intentionally NOT emitted. No timestamps -> byte-stable.
+
+    The emitter is core's (:func:`coop_review_core.report.to_sarif`); this tool
+    supplies its driver metadata (the real rules — core appends the synthetic
+    ``syntax-error`` diagnostics rule) and its pre-serialized findings.
     """
     from coop_sql_review.rules import all_rules  # lazy: avoid an import cycle
 
-    rules = all_rules()
-    rule_index = {r.id: i for i, r in enumerate(rules)}
-    driver_rules: list[dict] = [
+    driver_rules = [
         {
             "id": r.id,
             "name": r.id,
             "shortDescription": {"text": r.title},
-            "defaultConfiguration": {"level": _SARIF_LEVEL.get(r.severity, "note")},
+            "defaultConfiguration": {"level": SARIF_LEVEL.get(r.severity, "note")},
             "properties": {
                 "standard_ref": r.standard_ref,
                 "tier": r.tier,
@@ -180,74 +163,20 @@ def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
                 "targets": sorted(r.targets),
             },
         }
-        for r in rules
+        for r in all_rules()
     ]
-    diag_index = len(driver_rules)
-    driver_rules.append(
-        {
-            "id": _SARIF_DIAG_RULE,
-            "name": _SARIF_DIAG_RULE,
-            "shortDescription": {
-                "text": "A processing problem: a real T-SQL syntax error, a rule crash, or an unreadable file."
-            },
-            "defaultConfiguration": {"level": "error"},
-        }
+    return _core_to_sarif(
+        tool_name="coop-sql-review",
+        information_uri=_SARIF_INFO_URI,
+        version=version,
+        driver_rules=driver_rules,
+        findings=[_finding_json(f) for f in result.findings],
+        agent_review=[_agent_json(a) for a in result.agent_review],
+        diagnostics=result.diagnostics,
+        diagnostics_rule_description=(
+            "A processing problem: a real T-SQL syntax error, a rule crash, or an unreadable file."
+        ),
     )
-
-    results: list[dict] = []
-    for f in result.findings:
-        row = {
-            "ruleId": f.rule_id,
-            "level": _SARIF_LEVEL.get(f.severity, "note"),
-            "message": {"text": f.message},
-            "locations": [_sarif_location(f.file, f.line)],
-            "partialFingerprints": {_SARIF_FINGERPRINT_KEY: f.fingerprint()},
-        }
-        if f.rule_id in rule_index:
-            row["ruleIndex"] = rule_index[f.rule_id]
-        results.append(row)
-    for a in result.agent_review:
-        row = {
-            "ruleId": a.rule_id,
-            "level": "note",  # judgment items are visible but never blocking
-            "message": {"text": a.note},
-            "locations": [_sarif_location(a.file, a.line)],
-            "partialFingerprints": {_SARIF_FINGERPRINT_KEY: a.fingerprint()},
-        }
-        if a.rule_id in rule_index:
-            row["ruleIndex"] = rule_index[a.rule_id]
-        results.append(row)
-    for d in result.diagnostics:
-        if d.severity != "error":
-            continue  # warning-severity processing notes are not surfaced as SARIF results
-        results.append(
-            {
-                "ruleId": _SARIF_DIAG_RULE,
-                "ruleIndex": diag_index,
-                "level": "error",
-                "message": {"text": d.message},
-                "locations": [_sarif_location(d.file, d.line)],
-            }
-        )
-
-    log = {
-        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-        "version": "2.1.0",
-        "runs": [
-            {
-                "tool": {
-                    "driver": {
-                        "name": "coop-sql-review",
-                        "version": version,
-                        "informationUri": _SARIF_INFO_URI,
-                        "rules": driver_rules,
-                    }
-                },
-                "results": results,
-            }
-        ],
-    }
-    return json.dumps(log, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
 
 
 def console_lines(
@@ -261,25 +190,25 @@ def console_lines(
     severity-badged findings, then a summary panel. Deterministic with ASCII
     chrome; ``color`` only layers ANSI on top (opt-in, for an interactive
     terminal). Advisory wording throughout."""
-    bar = "=" * _REPORT_WIDTH
+    bar = "=" * REPORT_WIDTH
     indent = " " * 9  # aligns continuation lines under the rule id (3 + badge 5 + 1)
     lines: list[str] = []
 
     # ---- banner ----
     title, subtitle = "coop-sql-review", "SQL standards report"
-    pad = max(2, _REPORT_WIDTH - 2 - len(title) - len(subtitle))
-    lines.append(_sty(bar, "cyan", color=color))
+    pad = max(2, REPORT_WIDTH - 2 - len(title) - len(subtitle))
+    lines.append(sty(bar, "cyan", color=color))
     lines.append(
-        "  " + _sty(title, "bold", "cyan", color=color) + " " * pad + _sty(subtitle, "dim", color=color)
+        "  " + sty(title, "bold", "cyan", color=color) + " " * pad + sty(subtitle, "dim", color=color)
     )
-    lines.append(_sty(bar, "cyan", color=color))
+    lines.append(sty(bar, "cyan", color=color))
     meta = []
     if standards and standards.get("path"):
         meta.append(f"standards: {Path(standards['path']).name}")  # filename only; full path is in the JSON
     meta.append(f"files checked: {result.files_checked}")
     if version:
         meta.append(f"v{version}")
-    lines.append("  " + _sty("    ".join(meta), "dim", color=color))
+    lines.append("  " + sty("    ".join(meta), "dim", color=color))
 
     # ---- findings, grouped by file ----
     by_file: dict[str, list] = {}
@@ -288,31 +217,31 @@ def console_lines(
 
     for file in sorted(by_file):
         lines.append("")
-        lines.append("  " + _sty(file, "bold", color=color))
-        lines.append("  " + _sty("-" * (_REPORT_WIDTH - 2), "dim", color=color))
+        lines.append("  " + sty(file, "bold", color=color))
+        lines.append("  " + sty("-" * (REPORT_WIDTH - 2), "dim", color=color))
         for f in by_file[file]:
-            badge = _sty(
-                _BADGE.get(f.severity, "     "), _BADGE_COLOR.get(f.severity, "blue"), "bold", color=color
+            badge = sty(
+                BADGE.get(f.severity, "     "), BADGE_COLOR.get(f.severity, "blue"), "bold", color=color
             )
-            head = f"   {badge} " + _sty(f.rule_id, "bold", color=color) + f"  {f.standard_ref}"
+            head = f"   {badge} " + sty(f.rule_id, "bold", color=color) + f"  {f.standard_ref}"
             if f.object:
                 head += f"   {f.object}"
             lines.append(head)
-            lines.append(indent + _sty(f"{f.file}:{f.line}", "dim", color=color))  # clickable in editors
-            for wrapped in textwrap.wrap(f.message, _REPORT_WIDTH - 9):
+            lines.append(indent + sty(f"{f.file}:{f.line}", "dim", color=color))  # clickable in editors
+            for wrapped in textwrap.wrap(f.message, REPORT_WIDTH - 9):
                 lines.append(indent + wrapped)
 
     # ---- agent review (judgment required) — list what was flagged, not just a count ----
     if result.agent_review:
         lines.append("")
-        lines.append("  " + _sty("Agent review (judgment required)", "bold", color=color))
-        lines.append("  " + _sty("-" * (_REPORT_WIDTH - 2), "dim", color=color))
+        lines.append("  " + sty("Agent review (judgment required)", "bold", color=color))
+        lines.append("  " + sty("-" * (REPORT_WIDTH - 2), "dim", color=color))
         for a in result.agent_review:
             head = (
                 "   "
-                + _sty("JUDGE", "cyan", "bold", color=color)
+                + sty("JUDGE", "cyan", "bold", color=color)
                 + " "
-                + _sty(a.rule_id, "bold", color=color)
+                + sty(a.rule_id, "bold", color=color)
                 + f"  {a.standard_ref}"
             )
             if a.object:
@@ -321,17 +250,17 @@ def console_lines(
             # Same clickable location line findings get — without it, an object-less agent
             # item (e.g. SQL-TXN-SHORT) is literally unlocatable among the scanned files.
             loc = f"{a.file}:{a.line}" if a.line else a.file
-            lines.append(indent + _sty(loc, "dim", color=color))
-            for wrapped in textwrap.wrap(a.note, _REPORT_WIDTH - 9):
+            lines.append(indent + sty(loc, "dim", color=color))
+            for wrapped in textwrap.wrap(a.note, REPORT_WIDTH - 9):
                 lines.append(indent + wrapped)
 
     # ---- diagnostics (processing problems) — always shown; they explain gaps ----
     if result.diagnostics:
         lines.append("")
         lines.append(
-            "  " + _sty("Diagnostics (processing problems - analysis may be incomplete)", "bold", color=color)
+            "  " + sty("Diagnostics (processing problems - analysis may be incomplete)", "bold", color=color)
         )
-        lines.append("  " + _sty("-" * (_REPORT_WIDTH - 2), "dim", color=color))
+        lines.append("  " + sty("-" * (REPORT_WIDTH - 2), "dim", color=color))
         for diag in result.diagnostics:
             lines.append("   " + diag.as_line())
 
@@ -339,27 +268,27 @@ def console_lines(
     summary = result.summary()
     total = sum(summary.values())
     lines.append("")
-    lines.append(_sty(bar, "cyan", color=color))
+    lines.append(sty(bar, "cyan", color=color))
     if total == 0 and not result.diagnostics:
-        lines.append("  " + _sty("SUMMARY", "bold", color=color) + "    no issues found")
+        lines.append("  " + sty("SUMMARY", "bold", color=color) + "    no issues found")
     else:
         segs = [
-            _sty(f"{summary[s]} {s}", _BADGE_COLOR[s], "bold", color=color)
+            sty(f"{summary[s]} {s}", BADGE_COLOR[s], "bold", color=color)
             if summary[s]
-            else _sty(f"{summary[s]} {s}", "dim", color=color)
+            else sty(f"{summary[s]} {s}", "dim", color=color)
             for s in SEVERITIES
         ]
-        lines.append("  " + _sty("SUMMARY", "bold", color=color) + "    " + "   ".join(segs))
+        lines.append("  " + sty("SUMMARY", "bold", color=color) + "    " + "   ".join(segs))
         diag = result.diagnostic_summary()
         if result.agent_review:
             lines.append(
-                " " * 13 + _sty(f"{len(result.agent_review)} flagged for agent review", "dim", color=color)
+                " " * 13 + sty(f"{len(result.agent_review)} flagged for agent review", "dim", color=color)
             )
         if diag["error"] or diag["warning"]:
             bits = ", ".join(f"{diag[s]} {s}" for s in ("error", "warning") if diag[s])
-            lines.append(" " * 13 + _sty(f"diagnostics: {bits}", "dim", color=color))
-    lines.append(_sty(bar, "cyan", color=color))
-    lines.append("  " + _sty("Advisory only - nothing was changed or blocked.", "dim", color=color))
+            lines.append(" " * 13 + sty(f"diagnostics: {bits}", "dim", color=color))
+    lines.append(sty(bar, "cyan", color=color))
+    lines.append("  " + sty("Advisory only - nothing was changed or blocked.", "dim", color=color))
     return lines
 
 
@@ -419,104 +348,30 @@ def to_markdown(result: Result, *, version: str, standards: dict[str, str]) -> s
     return "\n".join(lines)
 
 
-# Cooptimize brand palette (sampled from the integrated logo): navy #004068,
-# accent red-orange #e84028, green gradient #407838 / #80a840 / #b0d030.
-_HTML_STYLE = """
-:root {
-  --bg: #f6f8f9; --card: #ffffff; --ink: #14202b; --muted: #5c6b73; --line: #e4e8ea;
-  --brand: #004068; --accent: #e84028;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --error: #c23b22; --error-bg: #fdece8; --warning: #8a5a00; --warning-bg: #fff5dd;
-  --info: #3a5a72; --info-bg: #e9eef2;
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.5; }
-.wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 64px; }
-header.brand { display: flex; align-items: center; gap: 14px; }
-header.brand img { height: 46px; width: auto; }
-header.brand h1 { font-size: 1.4rem; margin: 0; letter-spacing: -0.01em; color: var(--brand); }
-header.brand .sub { color: var(--muted); font-size: 0.85rem; }
-.brandbar { height: 4px; border-radius: 4px; margin: 14px 0 18px;
-  background: linear-gradient(90deg, #004068, #407838, #80a840, #b0d030); }
-.meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
-.meta code { font-family: var(--mono); }
-.pills { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
-.pill { font-size: 0.8rem; font-weight: 600; padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--card); }
-.pill.error { color: var(--error); background: var(--error-bg); border-color: transparent; }
-.pill.warning { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
-.pill.info { color: var(--info); background: var(--info-bg); border-color: transparent; }
-.advisory { color: var(--muted); font-size: 0.85rem; margin: 4px 0 24px; }
-h2 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand);
-  margin: 32px 0 12px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  margin-bottom: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(20,32,43,0.04); }
-.file { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; padding: 12px 16px;
-  border-bottom: 1px solid var(--line); background: #fbfcfd; color: var(--brand);
-  word-break: break-all; }
-.f { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 12px 16px;
-  border-bottom: 1px solid var(--line); }
-.f:last-child { border-bottom: 0; }
-.f.error { box-shadow: inset 3px 0 0 var(--accent); }
-.chip { align-self: start; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.03em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
-.chip.error { color: var(--error); background: var(--error-bg); }
-.chip.warning { color: var(--warning); background: var(--warning-bg); }
-.chip.info { color: var(--info); background: var(--info-bg); }
-.head { font-size: 0.8rem; color: var(--muted); font-family: var(--mono); }
-.head .rule { color: var(--ink); font-weight: 600; }
-.msg { grid-column: 2; }
-.empty { color: var(--muted); padding: 24px; text-align: center; background: var(--card);
-  border: 1px solid var(--line); border-radius: 12px; }
-""".strip()
-
-_LOGO_PATH = Path(__file__).resolve().parent / "data" / "cooptimize-logo.png"
-
-
-def _logo_data_uri() -> str:
-    """The bundled Cooptimize logo as a base64 data URI, so the HTML stays
-    self-contained (no external image). Empty string if the asset is missing."""
-    try:
-        raw = _LOGO_PATH.read_bytes()
-    except OSError:
-        return ""
-    return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
-
-
-def _esc(value) -> str:
-    return html.escape(str(value), quote=True)
-
-
-def _chip(severity: str) -> str:
-    sev = severity if severity in SEVERITIES else "info"
-    return f'<span class="chip {sev}">{_esc(severity)}</span>'
-
-
 def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
     """A self-contained, clean HTML report (inline CSS, no network).
 
     Deterministic and offline: findings are pre-sorted, no timestamps, all
-    dynamic text is HTML-escaped. Pair with ``--output report.html``.
+    dynamic text is HTML-escaped. The brand chrome (``HTML_STYLE``, the base64
+    logo, ``esc``/``chip``) is core's. Pair with ``--output report.html``.
     """
     summary = result.summary()
-    logo = _logo_data_uri()
+    logo = logo_data_uri()
     logo_img = f'<img src="{logo}" alt="Cooptimize">' if logo else ""
     parts: list[str] = [
         "<!DOCTYPE html>",
         '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         "<title>Cooptimize SQL Review</title>",
-        f"<style>{_HTML_STYLE}</style>",
+        f"<style>{HTML_STYLE}</style>",
         '</head><body><div class="wrap">',
         f'<header class="brand">{logo_img}<div>'
         "<h1>SQL Review</h1>"
         '<div class="sub">coop-sql-review &middot; Fabric DW standards report</div>'
         "</div></header>",
         '<div class="brandbar"></div>',
-        f'<div class="meta">version {_esc(version)} &middot; standards '
-        f"<code>{_esc(standards.get('path', ''))}</code> &middot; "
+        f'<div class="meta">version {esc(version)} &middot; standards '
+        f"<code>{esc(standards.get('path', ''))}</code> &middot; "
         f"{result.files_checked} file(s) checked</div>",
         '<div class="pills">'
         + "".join(f'<span class="pill {s}">{summary[s]} {s}</span>' for s in SEVERITIES if summary[s])
@@ -536,13 +391,13 @@ def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
     if by_file:
         for file in sorted(by_file):
             rows = "".join(
-                f'<div class="f {_esc(f.severity)}">{_chip(f.severity)}'
-                f'<div class="head"><span class="rule">{_esc(f.rule_id)}</span> '
-                f"({_esc(f.standard_ref)}) &middot; {_esc(f.file)}:{_esc(f.line)}</div>"
-                f'<div class="msg">{_esc(f.message)}</div></div>'
+                f'<div class="f {esc(f.severity)}">{chip(f.severity)}'
+                f'<div class="head"><span class="rule">{esc(f.rule_id)}</span> '
+                f"({esc(f.standard_ref)}) &middot; {esc(f.file)}:{esc(f.line)}</div>"
+                f'<div class="msg">{esc(f.message)}</div></div>'
                 for f in by_file[file]
             )
-            parts.append(f'<div class="card"><div class="file">{_esc(file)}</div>{rows}</div>')
+            parts.append(f'<div class="card"><div class="file">{esc(file)}</div>{rows}</div>')
     else:
         parts.append('<div class="empty">No issues found.</div>')
 
@@ -550,11 +405,11 @@ def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
         parts.append("<h2>Agent review (judgment required)</h2>")
         rows = "".join(
             f'<div class="f"><span class="chip info">agent</span>'
-            f'<div class="head"><span class="rule">{_esc(a.rule_id)}</span> '
-            f"({_esc(a.standard_ref)}) &middot; "
-            f"{(_esc(a.object) + ' &middot; ') if a.object else ''}"
-            f"{_esc(a.file)}{(':' + _esc(a.line)) if a.line else ''}</div>"
-            f'<div class="msg">{_esc(a.note)}</div></div>'
+            f'<div class="head"><span class="rule">{esc(a.rule_id)}</span> '
+            f"({esc(a.standard_ref)}) &middot; "
+            f"{(esc(a.object) + ' &middot; ') if a.object else ''}"
+            f"{esc(a.file)}{(':' + esc(a.line)) if a.line else ''}</div>"
+            f'<div class="msg">{esc(a.note)}</div></div>'
             for a in result.agent_review
         )
         parts.append(f'<div class="card">{rows}</div>')
@@ -562,10 +417,10 @@ def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
     if result.diagnostics:
         parts.append("<h2>Diagnostics (processing problems)</h2>")
         rows = "".join(
-            f'<div class="f">{_chip(d.severity)}'
-            f'<div class="head"><span class="rule">{_esc(d.category)}</span> &middot; '
-            f"{_esc(d.file)}{(':' + _esc(d.line)) if d.line else ''}</div>"
-            f'<div class="msg">{_esc(d.message)}</div></div>'
+            f'<div class="f">{chip(d.severity)}'
+            f'<div class="head"><span class="rule">{esc(d.category)}</span> &middot; '
+            f"{esc(d.file)}{(':' + esc(d.line)) if d.line else ''}</div>"
+            f'<div class="msg">{esc(d.message)}</div></div>'
             for d in result.diagnostics
         )
         parts.append(f'<div class="card">{rows}</div>')
@@ -577,8 +432,6 @@ def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
 def log_text(result: Result) -> str:
     """Full diagnostics log for ``--log-file``: every processing problem,
     one per line, deterministically ordered. Empty-safe."""
-    header = f"coop-sql-review diagnostics log - {result.files_checked} file(s) checked"
-    if not result.diagnostics:
-        return header + "\nNo diagnostics.\n"
-    body = "\n".join(diag.as_line() for diag in result.diagnostics)
-    return f"{header}\n{body}\n"
+    return _core_log_text(
+        result.diagnostics, tool="coop-sql-review", checked=result.files_checked, unit="file"
+    )
