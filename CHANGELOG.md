@@ -5,6 +5,39 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [Unreleased]
+### Changed
+- **Adopt `coop-review-core` 0.4.0's consolidation layer** (issue #21; core issues #9/#10/#11/#12).
+  The report scaffolding (console chrome, HTML style + logo, the machine-JSON envelope/verdict,
+  the diagnostics log), the SARIF emitter, and the CLI helper cluster (display paths, TTY/color
+  detection, extra-report sinks, the config write-back rule, the `syntax_errors` policy, the
+  UTF-8 console shim, the `upgrade`/`update` body) now come from core instead of local copies.
+  **Every output is byte-identical** before/after the swap (JSON, SARIF, text, Markdown, HTML,
+  `--log-file` — verified on the fixture corpus and a syntax-error corpus); the SARIF
+  `partialFingerprints` key stays frozen at `coopFingerprint/v2`. The duplicated
+  `data/cooptimize-logo.png` is gone — the HTML report embeds core's single bundled copy.
+  Dependency pin is now `coop-review-core>=0.4,<0.5` (capped per core's pin policy).
+- **`upgrade`/`update` closing message unified across the family** (via core):
+  "This tool does not update itself. To update, exit coop-sql-review and run:" — and the printed
+  commands are now shlex-quoted, so a Python path with spaces stays copy-pasteable.
+
+### Added
+- **`COOP_SQL_REVIEW_CONFIG` env var** — names the config file for a whole pipeline without
+  threading `--config` through every call site. A set-but-missing path is a usage error (exit 2),
+  never a silent fallback; an empty value counts as unset. `--config` still wins.
+- **Tool-named config file `coop-sql-review.yml`** (same schema as `rules.yml`) — the preferred
+  name, so several coop-\*-review linters can hold different configs side by side in one
+  directory. When both sit in one directory the tool-named file wins (a note on stderr says so).
+- **Git-style parent walk-up for config discovery** — the config is found from any subdirectory
+  of your repo, not just the exact folder you run from. The walk stops at the directory
+  containing `.git` (a config outside the repository never silently applies), else at the
+  filesystem root; the spot beside the standards file stays the final fallback.
+
+### Deprecated
+- **The shared `rules.yml` config filename.** It keeps working everywhere it worked before (same
+  schema, now also found via the parent walk-up), but every coop-\*-review tool reads that name;
+  discovery prints a one-line stderr nudge to rename it to `coop-sql-review.yml`.
+
 ## [0.8.0] — 2026-07-09
 ### Fixed
 - **DDL inside procedure bodies (and other nested statements) is now visible.** The parser

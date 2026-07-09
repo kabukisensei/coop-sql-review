@@ -13,10 +13,11 @@ Two non-negotiable invariants shape every design decision:
 - **Advisory, never blocking** — it reports; it never edits, rejects, or stops anything. Exit
   code is always `0` unless the caller opts into `--strict` (then exit `2` when findings remain,
   when **any error-severity diagnostic** remains — a real syntax error, a rule crash, an unreadable
-  file — or when **zero files were checked**, so a typo'd path can't pass CI as "clean"). CLI input
-  errors (missing/malformed `--config`, bad flags) are friendly one-line usage errors, exit `2`;
-  unwritable output sinks (`-o`, `--html`/`--md`, `--log-file`, `--write-baseline`) raise a
-  one-line `ClickException`, exit `1`.
+  file — or when **zero files were checked**, so a typo'd path can't pass CI as "clean"). The
+  canonical exit-code table is family-wide and lives in
+  [coop-review-core's AGENTS.md, "Exit-code contract (family-wide)"](https://github.com/kabukisensei/coop-review-core/blob/main/AGENTS.md#exit-code-contract-family-wide)
+  — 0 advisory / 1 friendly tool failure / 2 usage + `--strict` / 130 interrupt; this tool
+  implements it exactly, no local redefinitions.
 - **Offline + deterministic** — no network in the core; sorted iteration; LF newlines; `sort_keys`
   on JSON → byte-identical output across runs/OSes. (`upgrade.py` is the only networked module
   and is never imported by the core.)
@@ -38,7 +39,7 @@ User-facing usage docs live in `README.md` (written for readers with little term
 (the only networked command), `--version`. `check` options: `--standards`,
 `--config <rules.yml>`, `--format text|json|markdown|html|sarif`, `-o/--output <file>`,
 `--html <file>` / `--md/--markdown <file>` / `--sarif <file>` (extra report sinks — compose with
-`--format`, never open a browser; via `cli._write_extra_report`), `--open/--no-open`, `--color/--no-color`,
+`--format`, never open a browser; core's `cliutils.write_extra_report`), `--open/--no-open`, `--color/--no-color`,
 `--min-severity`, `--baseline`, `--write-baseline`, `--save-ignores` (interactive; see below),
 `--dialect`, `--target fabric-dw|azure-sql`, `--log-file`, `--strict` (opt-in CI gate →
 exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
@@ -69,19 +70,36 @@ Verified in `cli.py` — this is what happens when an agent, cron job, or CI pip
   `--format html` + interactive TTY; pass `--no-open` anyway if you want it explicit.
 - **The written report path is echoed to stderr unconditionally** (not TTY-gated), so a piped run
   can find the file. Parse stderr for it, or better: pass `-o <known-path>`.
-- **Exit codes:** always `0` (advisory), unless `--strict` (findings at/above `--min-severity`,
-  any remaining error-severity diagnostic — e.g. a `syntax_error` — or zero files checked → `2`),
-  usage errors → `2`, unwritable output sink → `1`.
+- **Exit codes:** the family-wide contract (see core's AGENTS.md link above): `0` advisory;
+  `--strict` trips (findings at/above `--min-severity`, any remaining error-severity diagnostic
+  — e.g. a `syntax_error` — or zero files checked) and usage errors → `2`; unwritable output
+  sink → `1`; Ctrl-C → `130`.
 
-**Config discovery:** `cli._config_read_path` reads `rules.yml` from `--config` if given, else a
-`rules.yml` in the **current directory** (so save-an-ignore-then-re-run works with no flags), else
-the conventional spot beside the standards file. An **explicit `--config` that doesn't exist is a
-usage error (exit 2)** — except under `--save-ignores`, where the flag also names the file to
-create; auto-discovery absence stays silent. All rules.yml load problems (bad YAML, non-mapping
-root/`rules:`, unknown severity, non-UTF-8 file) go through `cli._load_rule_config`, which turns
-them into one-line usage errors naming the file — never a traceback. `cli._config_write_path`
-(used by `--save-ignores`) writes to `--config` if given, else `./rules.yml` — never the bundled
-standards dir in the package.
+**Config discovery** is core's family-wide `discover_config` (core 0.4.0, coop-review-core#12),
+wrapped by `cli._discover_config_path`. First hit wins:
+
+1. `--config <file>` — an **explicit path that doesn't exist is a usage error (exit 2)**, except
+   under `--save-ignores`, where the flag also names the file to CREATE (that exemption is
+   tool-side; core doesn't know the flag).
+2. The `COOP_SQL_REVIEW_CONFIG` env var — points a whole CI pipeline at one config without
+   threading `--config` through every call site. Set-but-missing is a usage error too; empty
+   counts as unset.
+3. A **git-style walk** from the cwd up through its parents: in each directory
+   `coop-sql-review.yml` (the preferred, tool-specific name) first, then `rules.yml` as the
+   **deprecated** shared fallback. The walk checks the directory containing a `.git` entry and
+   stops — a config outside the repository never silently applies.
+4. The conventional spot beside the standards file (may not exist → empty config).
+
+`rules.yml` keeps working (same schema — tool-named files use the identical schema), but
+discovery returns human-facing notes (a deprecation nudge; a shadowing note when both files sit
+in one directory) that `check` prints as **stderr one-liners** — never on stdout, so the machine
+formats stay byte-identical. Auto-discovery absence stays silent. All config load problems (bad
+YAML, non-mapping root/`rules:`, unknown severity, non-UTF-8 file) go through
+`cli._load_rule_config` (core's `load_config_friendly` + `parse_syntax_errors_knob`, one read),
+which turns them into one-line usage errors naming the file — never a traceback.
+`cli._config_write_path` (used by `--save-ignores`) is core's `config_write_path`: `--config` if
+given, else the config this run actually READ (so an ignore is appended to the file that
+configured the run), else `./rules.yml` — never the bundled standards dir in the package.
 
 **`upgrade`/`update` are advisory too — they never self-apply.** They query PyPI to report
 whether a newer release exists, then *print* the command to run (`upgrade.upgrade_command(plan)`,
@@ -94,8 +112,9 @@ display-friendly tokens (`python` over `sys.executable`). `--check` reports stat
 
 **HTML report (`--format html`)** is self-contained and Cooptimize-branded: `report.to_html`
 inlines the CSS (brand palette: navy `#004068`, accent `#e84028`, green gradient) and base64-embeds
-the bundled logo (`data/cooptimize-logo.png`) — no network, all dynamic text HTML-escaped. The logo
-ships via the `[tool.hatch.build] include = [".../data/*"]` glob. `--format html` **always writes
+the logo — no network, all dynamic text HTML-escaped. The style block and logo are core's
+(`coop_review_core.report.HTML_STYLE` / `logo_data_uri()` — the family's single bundled copy;
+this repo no longer ships its own). `--format html` **always writes
 a file** (mirrors coop-dax-review): to `-o` if given, else `cli._DEFAULT_HTML_NAME`
 (`coop-sql-review-report.html`) in the current directory — never a raw dump to stdout. When any
 report file is written (`-o` or the html default), `check` echoes the resolved POSIX path to
@@ -162,7 +181,7 @@ PYTHONPATH=src .venv/bin/python -m coop_sql_review rules
 
 ## Testing against local coop-review-core
 
-The `.venv` holds a **non-editable installed** `coop-review-core` (0.2.0) — edits in the
+The `.venv` holds a **non-editable installed** `coop-review-core` (0.4.0) — edits in the
 `coop-review-core` checkout **next to this repo** are invisible to this tool until core is
 re-published and reinstalled. (The coop-* repos are assumed cloned side by side under one parent
 directory — on Aaron's Mac `~/Developer`, which is what `$HOME/Developer` below means; if yours
@@ -199,7 +218,7 @@ installed core has broken test collection before):
 ```
 
 Release order is core-first: publish `coop-review-core`, then this tool (`pyproject.toml` pins
-`coop-review-core>=0.2.0`).
+`coop-review-core>=0.4,<0.5` — capped; raise the cap alongside each new core minor).
 
 ## sqlglot version pin
 
@@ -278,12 +297,19 @@ trusted publishing, and creates the GitHub Release. Human steps in `PUBLISHING.m
 ## Architecture
 
 **Shared core:** the tool-agnostic infrastructure lives in the published
-[`coop-review-core`](https://github.com/kabukisensei/coop-review-core) package (runtime dep). The
-local `progress.py`, `diagnostics.py`, `suppressions.py`, `upgrade.py`, and `standards.py` are now
+[`coop-review-core`](https://github.com/kabukisensei/coop-review-core) package (runtime dep,
+pinned `>=0.4,<0.5` — capped per core's pin policy; bump the cap with each core release). The
+local `progress.py`, `diagnostics.py`, `suppressions.py`, `upgrade.py`, and `standards.py` are
 **thin shims** re-exporting / forwarding to core (baking in this tool's name); `finding.py` sources
 `SEVERITIES`/`severity_rank`/`at_or_above`/`fingerprint` from `coop_review_core.severity` but keeps
-the tool's own `Finding`/`AgentReviewItem`. Fix shared infra in `coop-review-core`; keep the parser,
-rules, Rule/RuleContext/Result, and `standards.md` here.
+the tool's own `Finding`/`AgentReviewItem`. Since core 0.4.0 (issue #21) the consolidation goes
+further: `report.py` renders through `coop_review_core.report` (console chrome, HTML style + the
+ONE bundled logo, the JSON envelope/verdict/diagnostics log, and the SARIF emitter — this tool
+supplies its finding/agent JSON shapes, layouts, and SARIF driver metadata), and `cli.py` uses
+`coop_review_core.cliutils` (display paths, TTY/color detection, extra-report sinks, the config
+write-back rule, the `syntax_errors` policy, the UTF-8 console shim, the shared `upgrade`/`update`
+body) plus `coop_review_core.config`'s `discover_config`/`load_config_friendly`. Fix shared infra
+in `coop-review-core`; keep the parser, rules, Rule/RuleContext/Result, and `standards.md` here.
 
 ```
 .sql files → parse (sqlglot tsql AST + raw text + line numbers + comments) → rule engine → Findings + Diagnostics → render (text/json/markdown/html)
