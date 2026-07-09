@@ -156,18 +156,18 @@ BRONZE_RENAMED = """\
 SELECT
     contactid AS CustomerId,
     firstname AS FirstName
-FROM bronze.raw_d365_contact;
+FROM bronze.raw_erp_contact;
 """
 
 BRONZE_RAW = """\
 SELECT contactid, firstname, lastname
-FROM bronze.raw_d365_contact;
+FROM bronze.raw_erp_contact;
 """
 
 SILVER_OVER_BRONZE_CTE = """\
 WITH cte_src AS (
     SELECT contactid, firstname
-    FROM bronze.raw_d365_contact
+    FROM bronze.raw_erp_contact
 )
 SELECT contactid AS CustomerId, firstname AS FirstName
 FROM cte_src;

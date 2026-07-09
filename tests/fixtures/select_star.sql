@@ -5,7 +5,7 @@
 CREATE VIEW silver.dim_customer AS
 WITH cte_source AS (
     SELECT *  -- intermediate CTE: allowed
-    FROM bronze.raw_d365_contact
+    FROM bronze.raw_erp_contact
 )
 SELECT *      -- production select: flagged
 FROM cte_source;

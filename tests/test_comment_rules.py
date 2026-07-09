@@ -131,7 +131,7 @@ WITH_HEADER = """\
 /*
   File: silver/dim_customer.sql
   Purpose: Clean and deduplicate customer data
-  Source: bronze.raw_d365_contact
+  Source: bronze.raw_erp_contact
   Author: Aaron Jennings
   Date: 2026-06-01
 */

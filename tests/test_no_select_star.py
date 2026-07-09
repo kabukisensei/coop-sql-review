@@ -23,7 +23,7 @@ def test_select_star_top_level_flagged():
 def test_select_star_in_cte_allowed():
     sql = """
     WITH cte_source AS (
-        SELECT * FROM bronze.raw_d365_contact
+        SELECT * FROM bronze.raw_erp_contact
     )
     SELECT CustomerId FROM cte_source;
     """
@@ -47,7 +47,7 @@ def test_select_star_in_derived_table_flagged():
     # pattern (prefer a CTE). Its inner SELECT * IS flagged, unlike a CTE's.
     sql = """
     SELECT sub.CustomerId FROM (
-        SELECT * FROM bronze.raw_d365_contact
+        SELECT * FROM bronze.raw_erp_contact
     ) sub;
     """
     findings = run(sql)
@@ -95,7 +95,7 @@ def test_final_select_star_above_cte_flagged():
     # The CTE's own SELECT * is exempt, but the production final SELECT * is not.
     sql = """
     WITH cte_source AS (
-        SELECT * FROM bronze.raw_d365_contact
+        SELECT * FROM bronze.raw_erp_contact
     )
     SELECT * FROM cte_source;
     """
