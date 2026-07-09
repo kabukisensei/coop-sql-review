@@ -5,7 +5,7 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
-## [Unreleased]
+## [0.8.0] — 2026-07-09
 ### Fixed
 - **DDL inside procedure bodies (and other nested statements) is now visible.** The parser
   only lifted *top-level* `CREATE` statements into `SqlObject`s, but sqlglot nests a body's
@@ -15,6 +15,17 @@ field and are called out here.
   `SQL-SILVER-PASCALCASE`, and the in-file size maps under-reported silently. Each top-level
   statement is now walked with `find_all(exp.Create)` (each `Create` visited exactly once —
   top-level extraction, object order, and finding counts for top-level DDL are unchanged).
+  Estates with DDL inside procs will see **new findings** on unchanged code — hence the minor
+  version bump.
+
+### Removed
+- **Dead `pydantic>=2.5` dependency dropped** — nothing imported it; installs (especially
+  pipx on Windows) no longer pull the large compiled wheel.
+
+### Docs
+- Fixed drift: rule count (32), fingerprint `schema_version` 3 (with the coop-dax-review v2
+  divergence called out), `--format sarif`/`--sarif` documented, `SQL-NO-ALTER-COLUMN`
+  severity corrected to warning everywhere.
 
 ## [0.7.1] — 2026-07-08
 ### Changed
@@ -337,6 +348,9 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.8.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.8.0
+[0.7.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.7.1
+[0.7.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.7.0
 [0.6.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.6.0
 [0.5.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.5.0
 [0.4.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.4.0
