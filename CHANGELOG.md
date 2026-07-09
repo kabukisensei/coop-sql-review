@@ -6,6 +6,16 @@ The JSON output is a machine contract (`schema_version`); breaking changes to it
 field and are called out here.
 
 ## [Unreleased]
+### Changed
+- **`SQL-FILTER-UPSTREAM` no longer drowns the agent-review channel** (issue #17). JOIN+WHERE
+  is the shape of nearly every production SELECT, so this one rule's identical boilerplate was
+  ~90% of all agent-review items on a real estate. Two changes: the rule now ships **off by
+  default** (enable via `rules.yml` like the other noisy-on-real-estates rules), and when
+  enabled its items are **collapsed to one per enclosing object** — the note carries the
+  count ("N join+WHERE queries in this object ..."), the line points at the first qualifying
+  SELECT, and a single-SELECT object keeps the original note verbatim (those fingerprints are
+  unchanged).
+
 ### Fixed
 - **`SQL-SARGABILITY` no longer contradicts `SQL-JOIN-FILTER` on COALESCE key-alignment
   joins** (issue #15). The key-alignment tolerance (`COALESCE`/`CAST`/`CONVERT`/`COLLATE`

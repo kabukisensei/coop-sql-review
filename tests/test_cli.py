@@ -191,6 +191,30 @@ def test_layer_rule_can_be_opted_in_via_config(tmp_path):
     assert "SQL-TABLE-LAYER-NAME" in out
 
 
+def test_filter_upstream_off_by_default_and_collapsed_when_enabled(tmp_path):
+    # issue #17: the rule ships off by default (it drowned the agent channel);
+    # opted back in via rules.yml it emits ONE collapsed item per object.
+    f = tmp_path / "p.sql"
+    f.write_text(
+        "CREATE OR ALTER PROCEDURE silver.p AS\n"
+        "BEGIN\n"
+        "    SELECT a.x FROM a JOIN b ON a.id = b.id WHERE a.f = 1;\n"
+        "    SELECT c.y FROM c JOIN d ON c.id = d.id WHERE c.g = 2;\n"
+        "END\n",
+        encoding="utf-8",
+    )
+    payload = json.loads(CliRunner().invoke(cli, ["check", str(f), "--format", "json"]).output)
+    assert all(a["rule_id"] != "SQL-FILTER-UPSTREAM" for a in payload["agent_review"])
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("rules:\n  SQL-FILTER-UPSTREAM:\n    enabled: true\n", encoding="utf-8")
+    payload = json.loads(
+        CliRunner().invoke(cli, ["check", str(f), "--format", "json", "--config", str(cfg)]).output
+    )
+    items = [a for a in payload["agent_review"] if a["rule_id"] == "SQL-FILTER-UPSTREAM"]
+    assert len(items) == 1
+    assert "2 join+WHERE queries" in items[0]["note"]
+
+
 def test_output_writes_report_to_file(tmp_path):
     f = tmp_path / "t.sql"
     f.write_text("SELECT * FROM x;\n", encoding="utf-8")

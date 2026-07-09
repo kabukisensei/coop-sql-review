@@ -255,6 +255,9 @@ def test_join_with_where_is_detected():
     items = run(FILTER_RULE, JOIN_WITH_WHERE)
     assert len(items) == 1
     assert items[0].rule_id == "SQL-FILTER-UPSTREAM"
+    # A single qualifying SELECT keeps the original note verbatim, so existing
+    # suppression fingerprints for one-SELECT objects are unchanged (issue #17).
+    assert items[0].note.startswith("join query with a WHERE filter")
 
 
 def test_join_without_where_is_not_detected():
@@ -266,8 +269,17 @@ def test_where_without_join_is_not_detected():
     assert run(FILTER_RULE, sql) == []
 
 
-def test_nested_join_where_yields_one_per_select():
-    # Edge: one review per qualifying SELECT (outer + nested subquery each qualify).
+def test_filter_upstream_is_off_by_default():
+    # issue #17: JOIN+WHERE is the shape of nearly every production SELECT — on
+    # a real estate this rule alone was ~90% of the agent channel. It ships off
+    # by default like the other noisy-on-real-estates rules.
+    assert FILTER_RULE.default_enabled is False
+
+
+def test_nested_join_where_collapses_per_object():
+    # issue #17: qualifying SELECTs collapse to ONE item per enclosing object
+    # (both of these sit at top level -> object "", one item), with the count in
+    # the note and the line pointing at the first qualifying SELECT.
     sql = """\
 SELECT c.CustomerId
 FROM silver.dim_customer c
@@ -279,7 +291,29 @@ WHERE c.CustomerId IN (
     WHERE o.Status = 'Open'
 );
 """
-    assert len(run(FILTER_RULE, sql)) == 2
+    items = run(FILTER_RULE, sql)
+    assert len(items) == 1
+    assert "2 join+WHERE queries" in items[0].note
+    assert items[0].line == 1
+
+
+def test_filter_upstream_one_item_per_proc():
+    # issue #17: a multi-proc file contributes at most one item per proc.
+    proc = (
+        "CREATE OR ALTER PROCEDURE {name} AS\n"
+        "BEGIN\n"
+        "    SELECT a.x FROM a JOIN b ON a.id = b.id WHERE a.f = 1;\n"
+        "    SELECT c.y FROM c JOIN d ON c.id = d.id WHERE c.g = 2;\n"
+        "END\n"
+        "GO\n"
+    )
+    sql = proc.format(name="silver.p_one") + proc.format(name="silver.p_two")
+    items = run(FILTER_RULE, sql)
+    assert len(items) == 2
+    assert {i.object for i in items} == {"silver.p_one", "silver.p_two"}
+    assert all("2 join+WHERE queries" in i.note for i in items)
+    # Each item's line is the object's first qualifying SELECT.
+    assert sorted(i.line for i in items) == [3, 9]
 
 
 # -- SQL-TXN-SHORT (§9) -----------------------------------------------------

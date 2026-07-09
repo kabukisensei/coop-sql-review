@@ -7,9 +7,9 @@ first (high value + reliably checkable). Severities are defaults; `rules.yml`/st
 override.
 
 Some rules ship **off by default** (`SQL-ALIAS-DESCRIPTIVE`, `SQL-CTE-PREFIX`,
-`SQL-HEADER-COMMENT`, `SQL-INSERT-ALIAS-MATCH`, `SQL-QUERY-LABEL`, `SQL-TABLE-LAYER-NAME`) and must
-be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules` marks these
-`[off by default]`.
+`SQL-FILTER-UPSTREAM`, `SQL-HEADER-COMMENT`, `SQL-INSERT-ALIAS-MATCH`, `SQL-QUERY-LABEL`,
+`SQL-TABLE-LAYER-NAME`) and must be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`);
+`coop-sql-review rules` marks these `[off by default]`.
 
 ## Deterministic rules — build these
 
@@ -51,7 +51,7 @@ be enabled in `rules.yml` (`<RULE-ID>: {enabled: true}`); `coop-sql-review rules
 | `SQL-SCD2-CORRECT` | 6 | close-then-insert SCD2 correctness is structural/semantic. |
 | `SQL-EXISTS-WHY-QUALITY` | 7 | *presence* of a comment is checkable (above); whether it explains **why** is judgment. |
 | `SQL-BRONZE-RAW-NAMES` | 1 | "preserve source names" needs the source schema to verify. |
-| `SQL-FILTER-UPSTREAM` | 8 | whether filtering *should* move upstream is contextual. |
+| `SQL-FILTER-UPSTREAM` | 8 | whether filtering *should* move upstream is contextual. Off by default (JOIN+WHERE is nearly every production SELECT — it drowned the agent channel); when enabled, collapsed to one item per object with the count in the note. |
 | `SQL-TXN-SHORT` | 9 | "transaction too long" isn't statically decidable. |
 
 ## Proposed-additions rules — built from `docs/standards-proposed-additions.md`

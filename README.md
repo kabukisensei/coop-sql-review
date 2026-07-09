@@ -275,6 +275,10 @@ styles — turn any on in `rules.yml` (as above) if your team follows that conve
 - `SQL-ALIAS-DESCRIPTIVE` (§2) — table aliases must be 3+ char descriptive abbreviations.
 - `SQL-INSERT-ALIAS-MATCH` (§3) — each `INSERT…SELECT` column must be aliased `AS <target>`.
 - `SQL-QUERY-LABEL` (§9) — ETL inserts should carry `OPTION(LABEL=…)`.
+- `SQL-FILTER-UPSTREAM` (§8) — join+WHERE queries the reviewing agent should consider
+  filtering upstream. Nearly every production SELECT has this shape, so on a real estate the
+  rule flooded the agent-review list; when you turn it on, it reports one line per
+  procedure/object (with a count) rather than one per query.
 
 Run `coop-sql-review rules` to see which rules are off by default (marked `[off by default]`).
 

@@ -130,7 +130,9 @@ overriding. Opening is best-effort (failure prints a note, never fatal).
 unless `rules.yml` has `enabled: true` for it (see `standards.apply_config`). Currently off by
 default (noisy on estates with different house styles): `SQL-HEADER-COMMENT`,
 `SQL-TABLE-LAYER-NAME`, `SQL-CTE-PREFIX`, `SQL-ALIAS-DESCRIPTIVE`, `SQL-INSERT-ALIAS-MATCH`,
-`SQL-QUERY-LABEL`. `rules` marks them `[off by default]`.
+`SQL-QUERY-LABEL`, `SQL-FILTER-UPSTREAM` (issue #17 — it drowned the agent channel; when
+enabled it also collapses to one item per enclosing object). `rules` marks them
+`[off by default]`.
 
 ## Environment
 
