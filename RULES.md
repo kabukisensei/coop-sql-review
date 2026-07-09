@@ -61,7 +61,7 @@ doc's section letter (`§A`–`§I`), not a `standards.md` section.
 
 | Rule ID | § | What it flags | Sev | Method |
 |---|---|---|---|---|
-| `SQL-SARGABILITY` | A | function or arithmetic (`col + x`) wrapping a column in a `WHERE`/`JOIN` predicate (`= <> > >= < <=`, `IN`, `BETWEEN`) — defeats indexes/stats | warning | AST |
+| `SQL-SARGABILITY` | A | function or arithmetic (`col + x`) wrapping a column in a `WHERE`/`JOIN` predicate (`= <> > >= < <=`, `IN`, `BETWEEN`) — defeats indexes/stats. Join hits get a join-oriented message; pure key-alignment wrappers on join keys (`COALESCE`/`CAST`/`CONVERT`/`COLLATE` — the same tolerance `SQL-JOIN-FILTER` documents) are NOT flagged by default; re-enable via `params: {flag_alignment_joins: true}` | warning | AST |
 | `SQL-ORDER-BY-IN-VIEW` | E | `ORDER BY` in a view/CTE/subquery with no `TOP` (ignored at runtime); window/`WITHIN GROUP` order excluded | warning | AST |
 | `SQL-DISTINCT-SMELL` | F | `SELECT DISTINCT` (often masks a fan-out join); aggregate `DISTINCT` excluded | info | AST |
 | `SQL-TRY-CAST-BRONZE` | D | `CAST` of a column when a `bronze.*` table is a read source — prefer `TRY_CAST` | info | AST |

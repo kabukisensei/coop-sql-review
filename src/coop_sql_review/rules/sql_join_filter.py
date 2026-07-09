@@ -14,6 +14,11 @@ columns, literals, type/collation tokens, or other alignment wrappers it is
 treated as part of the key — it neither counts as a business function nor lets
 its wrapped literal trip the literal check. A wrapper that contains a genuine
 business function (``CAST(YEAR(a.d) AS INT)``) is *not* benign and still flags.
+
+The tolerance lives in ``helpers.is_alignment_subtree`` and is SHARED with
+SQL-SARGABILITY (§A), which prunes the same shapes at JOIN ON sites by default
+— keep them in lockstep so the two rules never contradict each other on the
+same predicate (issue #15).
 """
 
 from __future__ import annotations
@@ -22,49 +27,10 @@ from sqlglot import exp
 
 from coop_sql_review.finding import Finding
 from coop_sql_review.rules.base import Rule, RuleContext
-from coop_sql_review.rules.helpers import enclosing_object
+from coop_sql_review.rules.helpers import enclosing_object, is_alignment_subtree
 
 # Non-equality comparisons that signal a filter rather than a key join.
 _FILTER_COMPARISONS = (exp.GT, exp.GTE, exp.LT, exp.LTE, exp.NEQ, exp.Like, exp.In, exp.Between)
-
-# Idiomatic wrappers used to align keys; not business logic on their own.
-# (``ISNULL`` parses to ``exp.Coalesce`` under the tsql dialect.)
-_ALIGNMENT_WRAPPERS = (exp.Coalesce, exp.Cast, exp.Convert, exp.Collate)
-
-# Node types allowed inside an alignment wrapper for it to count as part of the
-# key: bare columns/identifiers, literals, type/collation tokens, NULL, and
-# nested alignment wrappers (handled separately in ``_is_alignment_subtree``).
-# ``exp.DataTypeParam`` is the size/precision of a sized type (``VARCHAR(10)``,
-# ``DECIMAL(19, 4)``) — it can only hold literals/vars, so it cannot smuggle a
-# business function past the tolerance.
-_ALIGNMENT_LEAVES = (
-    exp.Column,
-    exp.Identifier,
-    exp.Literal,
-    exp.DataType,
-    exp.DataTypeParam,
-    exp.Var,
-    exp.Null,
-)
-
-
-def _is_alignment_subtree(node: exp.Expression) -> bool:
-    """True if ``node`` is an alignment wrapper containing only key material.
-
-    Such a subtree (e.g. ``COALESCE(a.id, 0)`` or ``CAST(a.id AS INT)``) is
-    considered part of the join key, so the walk in :func:`_has_filter` prunes
-    it. A wrapper enclosing anything else (notably a real function call) is not
-    benign and is left for the normal checks to flag.
-    """
-    if not isinstance(node, _ALIGNMENT_WRAPPERS):
-        return False
-    for child in node.walk():
-        if child is node:
-            continue
-        if isinstance(child, _ALIGNMENT_WRAPPERS) or isinstance(child, _ALIGNMENT_LEAVES):
-            continue
-        return False
-    return True
 
 
 def _has_filter(on: exp.Expression) -> bool:
@@ -78,8 +44,8 @@ def _has_filter(on: exp.Expression) -> bool:
     Idiomatic alignment wrappers (see module docstring) are pruned so they
     neither count as functions nor expose their wrapped literals.
     """
-    for node in on.walk(prune=_is_alignment_subtree):
-        if _is_alignment_subtree(node):
+    for node in on.walk(prune=is_alignment_subtree):
+        if is_alignment_subtree(node):
             continue
         if isinstance(node, (exp.Literal, exp.Case, exp.Anonymous, exp.Or, exp.Is)):
             return True

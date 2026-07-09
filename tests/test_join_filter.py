@@ -95,6 +95,14 @@ def test_collate_key_alignment_not_flagged():
     assert findings == []
 
 
+def test_nested_alignment_wrappers_not_flagged():
+    # Nested wrappers (CAST around COALESCE) are still pure key alignment —
+    # the tolerance is helpers.is_alignment_subtree, SHARED with
+    # SQL-SARGABILITY's join-site pruning (issue #15); keep them in lockstep.
+    findings = run("SELECT * FROM a JOIN b ON CAST(COALESCE(a.id, 0) AS INT) = b.id")
+    assert findings == []
+
+
 def test_business_function_inside_cast_still_flagged():
     # An alignment wrapper enclosing a real function is not benign.
     findings = run("SELECT * FROM a JOIN b ON CAST(YEAR(a.d) AS INT) = b.y")

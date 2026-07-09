@@ -180,6 +180,53 @@ def preceding_comment(parsed, line: int, within: int = 3) -> bool:
     )
 
 
+# -- join-key alignment tolerance --------------------------------------------
+# Shared by SQL-JOIN-FILTER (§8) and SQL-SARGABILITY (§A) so the two rules never
+# give contradictory guidance on the same ON predicate (issue #15): a wrapper
+# that one rule documents as idiomatic key alignment must not be a rewrite
+# demand in the other.
+
+# Idiomatic wrappers used to align keys; not business logic on their own.
+# (``ISNULL`` parses to ``exp.Coalesce`` under the tsql dialect.)
+_ALIGNMENT_WRAPPERS = (exp.Coalesce, exp.Cast, exp.Convert, exp.Collate)
+
+# Node types allowed inside an alignment wrapper for it to count as part of the
+# key: bare columns/identifiers, literals, type/collation tokens, NULL, and
+# nested alignment wrappers (handled separately in ``is_alignment_subtree``).
+# ``exp.DataTypeParam`` is the size/precision of a sized type (``VARCHAR(10)``,
+# ``DECIMAL(19, 4)``) — it can only hold literals/vars, so it cannot smuggle a
+# business function past the tolerance.
+_ALIGNMENT_LEAVES = (
+    exp.Column,
+    exp.Identifier,
+    exp.Literal,
+    exp.DataType,
+    exp.DataTypeParam,
+    exp.Var,
+    exp.Null,
+)
+
+
+def is_alignment_subtree(node: exp.Expression) -> bool:
+    """True if ``node`` is an alignment wrapper containing only key material.
+
+    Such a subtree (e.g. ``COALESCE(a.id, 0)`` or ``CAST(a.id AS INT)`` —
+    nesting included, ``CAST(COALESCE(a.id, 0) AS INT)``) is considered part of
+    a join key. A wrapper enclosing anything else (notably a real function
+    call, ``CAST(YEAR(a.d) AS INT)``) is not benign and is left for the normal
+    checks to flag.
+    """
+    if not isinstance(node, _ALIGNMENT_WRAPPERS):
+        return False
+    for child in node.walk():
+        if child is node:
+            continue
+        if isinstance(child, _ALIGNMENT_WRAPPERS) or isinstance(child, _ALIGNMENT_LEAVES):
+            continue
+        return False
+    return True
+
+
 def projection_stars(select: exp.Select) -> list[exp.Expression]:
     """Projection items of ``select`` that are an unqualified or qualified
     ``*`` (``SELECT *`` / ``SELECT t.*``) — excludes ``COUNT(*)`` and friends,

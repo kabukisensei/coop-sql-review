@@ -7,6 +7,19 @@ field and are called out here.
 
 ## [Unreleased]
 ### Fixed
+- **`SQL-SARGABILITY` no longer contradicts `SQL-JOIN-FILTER` on COALESCE key-alignment
+  joins** (issue #15). The key-alignment tolerance (`COALESCE`/`CAST`/`CONVERT`/`COLLATE`
+  containing only key material, nesting included) now lives once in `rules/helpers.py`
+  (`is_alignment_subtree`) and is shared by both rules: a join predicate like
+  `ON COALESCE(a.id, 0) = COALESCE(b.id, 0)` — which `SQL-JOIN-FILTER` documents as
+  idiomatic — is no longer flagged by `SQL-SARGABILITY` by default. Teams that want the
+  strict statistics story can set `params: {flag_alignment_joins: true}` on the rule.
+  Genuine join-key hits (`ON YEAR(a.d) = b.y`) still fire but now carry a join-oriented
+  message ("align the key types/values upstream ... and join on bare keys") instead of the
+  WHERE-clause advice ("filter the bare column with a range"), which made no sense for a
+  join key. NB: the message change means join-site `SQL-SARGABILITY` findings get new
+  fingerprints — re-run `--write-baseline` if you baseline them. `WHERE` behavior is
+  unchanged.
 - **Aliased updates are attributed to the real table, not the alias** (issue #14). For the
   idiomatic T-SQL form `UPDATE d SET ... FROM silver.dim_customer AS d JOIN ...`,
   `dml_target` now resolves the bare alias through the statement's FROM/JOIN sources, so

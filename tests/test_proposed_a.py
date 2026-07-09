@@ -131,6 +131,74 @@ def test_sargability_literal_arithmetic_not_flagged():
     assert _run(SARG_RULE, "SELECT a FROM t WHERE x > 100 + 1") == []
 
 
+# -- SQL-SARGABILITY x SQL-JOIN-FILTER alignment tolerance (issue #15) -------
+
+
+def test_sargability_coalesce_alignment_join_not_flagged():
+    # NEGATIVE: SQL-JOIN-FILTER documents COALESCE-on-both-keys as idiomatic
+    # alignment; this rule must not demand a rewrite of the same predicate.
+    sql = "SELECT 1 FROM silver.a AS a JOIN silver.b AS b ON COALESCE(a.id, 0) = COALESCE(b.id, 0)"
+    assert _run(SARG_RULE, sql) == []
+
+
+def test_sargability_nested_alignment_wrapper_join_not_flagged():
+    # NEGATIVE: nested wrappers (CAST around COALESCE) are still pure alignment.
+    sql = "SELECT 1 FROM a JOIN b ON CAST(COALESCE(a.id, 0) AS INT) = b.id"
+    assert _run(SARG_RULE, sql) == []
+
+
+def test_sargability_where_coalesce_still_flagged_with_filter_message():
+    # POSITIVE: the tolerance is join-only — a COALESCE in WHERE still fires,
+    # with the WHERE-oriented message.
+    findings = _run(SARG_RULE, "SELECT a FROM t WHERE COALESCE(col, 0) = 1")
+    assert len(findings) == 1
+    assert "filter the bare column" in findings[0].message
+
+
+def test_sargability_join_business_function_gets_join_message():
+    # POSITIVE: a genuine function on a join key still fires, but with the
+    # join-oriented message — never the WHERE "filter the bare column with a
+    # range" advice, which makes no sense for a join key.
+    findings = _run(SARG_RULE, "SELECT 1 FROM a JOIN b ON YEAR(a.d) = b.y")
+    assert len(findings) == 1
+    assert "join" in findings[0].message
+    assert "filter the bare column" not in findings[0].message
+
+
+def test_sargability_alignment_wrapping_business_function_still_flagged():
+    # POSITIVE: a wrapper enclosing a real function is not benign alignment —
+    # consistent with SQL-JOIN-FILTER, which also flags this shape.
+    findings = _run(SARG_RULE, "SELECT 1 FROM a JOIN b ON CAST(YEAR(a.d) AS INT) = b.y")
+    assert len(findings) == 1
+
+
+def test_sargability_flag_alignment_joins_param_reenables():
+    # The strict statistics story is available via params (documented in RULES.md).
+    from dataclasses import replace
+
+    sql = "SELECT 1 FROM a JOIN b ON COALESCE(a.id, 0) = COALESCE(b.id, 0)"
+    strict = replace(SARG_RULE, params={"flag_alignment_joins": True})
+    findings = _run(strict, sql)
+    assert len(findings) == 1
+    assert "join" in findings[0].message
+
+
+def test_sargability_where_inside_join_subquery_is_a_where_site():
+    # EDGE: a WHERE nested inside a subquery in an ON clause is a WHERE site —
+    # it keeps the WHERE message and no alignment tolerance applies.
+    sql = "SELECT 1 FROM a JOIN b ON a.id = (SELECT MAX(x.id) FROM x WHERE YEAR(x.d) = 2024)"
+    findings = _run(SARG_RULE, sql)
+    assert len(findings) == 1
+    assert "filter the bare column" in findings[0].message
+
+
+def test_sargability_alignment_join_inside_where_subquery_not_flagged():
+    # EDGE: an alignment join nested inside an EXISTS subquery is still a JOIN
+    # site (the outer WHERE scan reaches it first) — the tolerance must hold.
+    sql = "SELECT a.x FROM a WHERE EXISTS (SELECT 1 FROM b JOIN c ON COALESCE(b.id, 0) = COALESCE(c.id, 0))"
+    assert _run(SARG_RULE, sql) == []
+
+
 # -- SQL-ORDER-BY-IN-VIEW (§E) ----------------------------------------------
 
 
