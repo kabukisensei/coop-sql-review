@@ -7,6 +7,12 @@ rejects, or deletes anything. It just prints a report so you can fix things befo
 It works completely **offline** (your SQL never leaves your machine) and runs the same on
 **Windows and Mac**.
 
+Part of the Cooptimize **coop suite** — if your team uses
+[coop-agent](https://github.com/kabukisensei/coop-agent), `coop install` installs this plus the
+sibling tools ([coop-dax-review](https://github.com/kabukisensei/coop-dax-review),
+[coop-data-doc](https://github.com/kabukisensei/coop-data-doc)); `coop update` keeps them
+current.
+
 ---
 
 ## 1. What you need first
@@ -204,7 +210,7 @@ without failing the build — add `--strict` if you want the build to go red on 
 | `--write-baseline <file>` | Record the current findings and agent-review items to this baseline file (then report as usual). |
 | `--save-ignores` | After the report, interactively tick findings to add to your `rules.yml` ignore list, so they're silenced next run (see §9). |
 | `--standards <file>` | Check against a specific standards file (default: the built-in copy). |
-| `--config <rules.yml>` | Turn rules on/off, change their severity, or list ignored findings (see §7). A `rules.yml` in the current folder is picked up automatically, so `--config` is optional. (A `--config` path that doesn't exist is an error, so a typo can't silently drop your overrides.) |
+| `--config <file.yml>` | Turn rules on/off, change their severity, or list ignored findings (see §7). A `coop-sql-review.yml` (or `rules.yml`) in the current folder — or a parent folder, or named by the `COOP_SQL_REVIEW_CONFIG` environment variable — is picked up automatically, so `--config` is optional. (A `--config` path that doesn't exist is an error, so a typo can't silently drop your overrides.) |
 | `--log-file <file>` | Also write the diagnostics (parse problems, errors) to a file. |
 | `--strict` | Exit with an error code if any finding **at or above `--min-severity`** remains — for CI gates (see §6). Also fails on a **real syntax error** (or any other error-level diagnostic, e.g. an unreadable file) and when **no `.sql` files were checked at all**, so a typo'd path or a broken file can't pass silently. |
 | `--dialect <name>` | SQL dialect to parse (default `tsql`, which fits Fabric). |
@@ -251,8 +257,13 @@ Then:
 coop-sql-review check sql-folder --config rules.yml
 ```
 
-> **Tip:** if a `rules.yml` sits in the folder you run the command from, it's picked up
-> **automatically** — you can drop the `--config rules.yml` entirely.
+> **Tip:** the config file is picked up **automatically** — you can drop the `--config` flag
+> entirely. The tool looks for a `coop-sql-review.yml` (preferred name), then a `rules.yml`, in
+> the folder you run from and then its parent folders (stopping at your repo's root). You can
+> also point the `COOP_SQL_REVIEW_CONFIG` environment variable at a config file — handy in CI.
+> The shared `rules.yml` name still works everywhere it used to, but every coop-\*-review tool
+> reads it; renaming yours to `coop-sql-review.yml` makes it specific to this tool (the tool
+> prints a gentle reminder when it finds a `rules.yml`).
 
 **Some rules ship turned off by default** because they're noisy on estates with different house
 styles — turn any on in `rules.yml` (as above) if your team follows that convention:
