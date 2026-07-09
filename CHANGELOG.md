@@ -6,6 +6,15 @@ The JSON output is a machine contract (`schema_version`); breaking changes to it
 field and are called out here.
 
 ## [Unreleased]
+### Fixed
+- **DDL inside procedure bodies (and other nested statements) is now visible.** The parser
+  only lifted *top-level* `CREATE` statements into `SqlObject`s, but sqlglot nests a body's
+  DDL under the enclosing statement's node — so a `CREATE TABLE` inside a `CREATE PROCEDURE`
+  (or under an `IF ... BEGIN ... END` guard) produced **zero** findings and **zero**
+  diagnostics. On an all-procs estate every §9 type rule, `SQL-TABLE-LAYER-NAME`,
+  `SQL-SILVER-PASCALCASE`, and the in-file size maps under-reported silently. Each top-level
+  statement is now walked with `find_all(exp.Create)` (each `Create` visited exactly once —
+  top-level extraction, object order, and finding counts for top-level DDL are unchanged).
 
 ## [0.7.1] — 2026-07-08
 ### Changed

@@ -213,10 +213,18 @@ def parse_sql(path: str, text: str, dialect: str = "tsql") -> ParsedFile:
         )
         parsed.batches.append(batch)
         _record_parse_diagnostics(parsed, batch)
-        for create in (e for e in batch.expressions if isinstance(e, exp.Create)):
-            obj = _extract_object(create, batch, parsed, dialect)
-            if obj is not None:
-                parsed.objects.append(obj)
+        for expression in batch.expressions:
+            # find_all, not a top-level isinstance scan: sqlglot nests body DDL under
+            # the enclosing statement's node (a proc's CREATE TABLE lives inside the
+            # proc's own exp.Create), so a top-level-only scan silently missed every
+            # table a procedure creates — no findings AND no diagnostic. find_all
+            # walks the statement itself first, then its descendants (each node
+            # exactly once, deterministic pre-order), so top-level extraction and
+            # object order are unchanged and no Create is visited twice.
+            for create in expression.find_all(exp.Create):
+                obj = _extract_object(create, batch, parsed, dialect)
+                if obj is not None:
+                    parsed.objects.append(obj)
     return parsed
 
 
