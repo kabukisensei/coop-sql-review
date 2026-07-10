@@ -404,6 +404,11 @@ so working estate SQL is never reported as broken and a misclassified real error
   TIMESTAMP` + `Expecting )`, with the SELECT recovering cleanly. Detected by `FOR TIMESTAMP AS OF`.
 - **`MASKED WITH (FUNCTION='…')`** — dynamic data masking in CREATE/ALTER TABLE: degrades the whole
   statement to an opaque `Command` with a lone `Expecting )`. Detected by the `MASKED WITH` keyword.
+- **`EXEC('…' + @var)` / `EXEC(@a + @b)`** — a concatenated dynamic-execution argument →
+  `Expecting )` on the `+` (recovery still yields the `Execute` node, so `had_none` stays False;
+  a single-literal/-variable `EXEC(...)` parses fine and never reaches the classifier). Detected
+  by the `EXEC(`/`EXECUTE(` construct. (Found during issue #19; the site also gets a
+  `dynamic_sql` diagnostic either way.)
 - **Procedure/function bodies** sqlglot can only partially parse — a lone generic
   `Invalid expression / Unexpected token` with no `None` in recovery (e.g. `SET NOCOUNT ON;` before
   a trailing `UPDATE … END`). The mangled-CTE-in-a-proc incident (2026-07-06) is **not**
@@ -418,9 +423,11 @@ line). Re-validate the whole estate (§ below) after any change to the classifie
 ## Error handling (project requirement)
 
 Never swallow errors. Real syntax errors (`syntax_error`, severity `error`), parse failures,
-opaque-command/grammar-gap degradations, and rule crashes become `Diagnostic`s that are shown in
-the console report AND the JSON (`"diagnostics"` key) on every run, and can be captured with
-`check --log-file <path>`. Keep messages specific and actionable (file:line + what happened + what
+opaque-command/grammar-gap degradations, dynamic-execution sites (`dynamic_sql`, severity
+`warning` — string-built statements no rule can see; the `EXEC(`/`sp_executesql` scan in
+`parser.py`, tunable via the rules.yml `dynamic_sql: error|warning|off` knob), and rule crashes
+become `Diagnostic`s that are shown in the console report AND the JSON (`"diagnostics"` key) on
+every run, and can be captured with `check --log-file <path>`. Keep messages specific and actionable (file:line + what happened + what
 it means) so the user can fix the cause. Syntax-error diagnostic messages are **ASCII-only and
 single-line** (they use sqlglot's structured `description`/`line`/`col`, never its rendered message
 with ANSI underlines and a SQL snippet) so JSON stays deterministic and the console stays

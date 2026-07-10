@@ -25,3 +25,10 @@ from coop_review_core.diagnostics import (  # noqa: F401
 # warning-severity gaps PARSE_FAILED / PARSE_DEGRADED; it is "error" by default,
 # tunable via the rules.yml `syntax_errors: error|warning|off` knob and an inline
 # `coop-sql-review:ignore syntax` directive.
+
+# Tool-local category (core treats categories as open strings, like SCAN_EMPTY
+# once was): a dynamic-execution site — EXEC('...')/EXEC(@sql)/sp_executesql —
+# whose string-built statements are invisible to every rule (issue #19). Severity
+# "warning" by default; tunable via the rules.yml `dynamic_sql: error|warning|off`
+# knob (same shape as `syntax_errors`).
+DYNAMIC_SQL = "dynamic_sql"

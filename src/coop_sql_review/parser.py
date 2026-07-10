@@ -13,7 +13,13 @@ import re
 
 from sqlglot import exp
 
-from coop_sql_review.diagnostics import PARSE_DEGRADED, PARSE_FAILED, SYNTAX_ERROR, Diagnostic
+from coop_sql_review.diagnostics import (
+    DYNAMIC_SQL,
+    PARSE_DEGRADED,
+    PARSE_FAILED,
+    SYNTAX_ERROR,
+    Diagnostic,
+)
 from coop_sql_review.identifiers import original_name
 from coop_sql_review.sql_common import (
     ident_token_end,
@@ -225,7 +231,46 @@ def parse_sql(path: str, text: str, dialect: str = "tsql") -> ParsedFile:
                 obj = _extract_object(create, batch, parsed, dialect)
                 if obj is not None:
                     parsed.objects.append(obj)
+    _record_dynamic_sql_diagnostics(parsed)
     return parsed
+
+
+# Dynamic-execution sites (issue #19). `EXEC(...)` / `EXECUTE(...)` — a paren right
+# after the keyword is ALWAYS dynamic execution in T-SQL; a procedure invocation
+# (`EXEC silver.usp_x`, `EXEC @rc = usp_x`) never has one. `sp_executesql` may be
+# invoked with or without a leading EXEC (both work in T-SQL), so it is matched by
+# name; the EXEC-paren pattern can't also match that site (no paren follows EXEC).
+# Both are scanned over the comment/string-masked text, so a mention inside a
+# comment or string literal can never fire.
+_DYNAMIC_EXEC_RE = re.compile(r"\bEXEC(?:UTE)?\s*\(", re.IGNORECASE)
+_SP_EXECUTESQL_RE = re.compile(r"\bsp_executesql\b", re.IGNORECASE)
+
+
+def _record_dynamic_sql_diagnostics(parsed: ParsedFile) -> None:
+    """One warning diagnostic per dynamic-execution site — the invariant is that
+    a coverage gap is never silent, and statements built in strings are invisible
+    to every rule (`mask_noncode` blanks the literal's content; the AST sees an
+    opaque argument). The severity/off switch is the rules.yml
+    ``dynamic_sql: error|warning|off`` knob, applied at the CLI edge (this
+    function stays pure, mirroring the syntax_error flow)."""
+    offsets = sorted(
+        match.start()
+        for pattern in (_DYNAMIC_EXEC_RE, _SP_EXECUTESQL_RE)
+        for match in pattern.finditer(parsed.masked)
+    )
+    for offset in offsets:
+        parsed.diagnostics.append(
+            Diagnostic(
+                severity="warning",
+                category=DYNAMIC_SQL,
+                file=parsed.path,
+                line=parsed.line_of_offset(offset),
+                message=(
+                    "dynamic SQL is not analyzed - statements built in strings are "
+                    "invisible to every rule; review the executed string manually."
+                ),
+            )
+        )
 
 
 def _record_parse_diagnostics(parsed: ParsedFile, batch: Batch) -> None:

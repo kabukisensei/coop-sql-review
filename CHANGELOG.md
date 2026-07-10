@@ -7,6 +7,14 @@ field and are called out here.
 
 ## [Unreleased]
 ### Added
+- **Dynamic SQL is no longer a silent blind spot** (issue #19). Statements built in strings
+  (`EXEC('...')`, `EXEC(@sql)`, `sp_executesql`) are invisible to every rule — and the tool
+  used to say nothing about them. Each dynamic-execution site now surfaces as a `dynamic_sql`
+  **warning diagnostic** (console, JSON `diagnostics`, `--log-file`), with the file and line.
+  A plain procedure invocation (`EXEC silver.usp_x`) is not flagged, and mentions inside
+  comments/strings can't trip the scan (it runs over the masked text). Tunable via a
+  top-level `dynamic_sql: error|warning|off` key in `rules.yml` (default `warning`; `error`
+  makes `--strict` gate on it; `off` hides it) — same shape as the `syntax_errors:` knob.
 - **"Findings by rule" triage table** (issue #18). The console SUMMARY, the Markdown report,
   and the HTML report now break the finding counts down per rule (noisiest first, then rule
   id) — the actionable next step (`rules.yml` `enabled: false` / a severity override /
@@ -25,6 +33,11 @@ field and are called out here.
   unchanged).
 
 ### Fixed
+- **`EXEC('...' + @var)` is no longer misreported as a syntax error** (found during issue
+  #19). A concatenated dynamic-execution argument is valid T-SQL that sqlglot cannot parse;
+  it now classifies as a `parse_degraded` grammar-gap warning (plus the new `dynamic_sql`
+  diagnostic) instead of an error-severity `syntax_error` that would fail `--strict` on
+  working estate SQL.
 - **`--strict` help now names all three exit-2 conditions** (issue #18): findings at/above
   `--min-severity`, any remaining error-severity diagnostic (a real syntax error, a rule
   crash, an unreadable file), and zero files checked. The gate itself is unchanged — the

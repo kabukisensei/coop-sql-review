@@ -51,6 +51,7 @@ from coop_sql_review import __version__
 from coop_sql_review.diagnostics import (
     BASELINE_STALE,
     CONFIG_UNKNOWN_RULE,
+    DYNAMIC_SQL,
     FILE_UNREADABLE,
     IGNORE_STALE,
     SCAN_EMPTY,
@@ -263,18 +264,19 @@ def _config_write_path(config_path: str | None, cfg_path: Path) -> Path:
     return config_write_path(config_path, cfg_path, package_dir=Path(__file__).resolve().parent)
 
 
-def _load_rule_config(path: Path) -> tuple[RuleConfig, str, dict]:
-    """Core's friendly config load (one read) + this tool's ``syntax_errors`` knob,
-    under the CLI's friendly-error contract.
+def _load_rule_config(path: Path) -> tuple[RuleConfig, str, str, dict]:
+    """Core's friendly config load (one read) + this tool's ``syntax_errors`` and
+    ``dynamic_sql`` knobs, under the CLI's friendly-error contract.
 
-    Returns ``(config, syntax_errors_mode, raw_mapping)`` where the mode is one of
-    ``error``/``warning``/``off`` (default ``error``) and ``raw_mapping`` is the
-    file's top-level mapping (for tool-side keys like ``target:``).
+    Returns ``(config, syntax_errors_mode, dynamic_sql_mode, raw_mapping)`` where
+    each mode is one of ``error``/``warning``/``off`` (defaults: ``error`` for
+    syntax errors, ``warning`` for dynamic SQL) and ``raw_mapping`` is the file's
+    top-level mapping (for tool-side keys like ``target:``).
 
     rules.yml is a hand-edited file (and auto-discovered), so any problem in it —
-    bad YAML, wrong shape, an unknown severity or ``syntax_errors`` value, a wrong
-    encoding — must become a one-line usage error (exit 2) naming the file, never
-    a traceback. A path that simply doesn't exist loads as the empty config; the
+    bad YAML, wrong shape, an unknown severity or knob value, a wrong encoding —
+    must become a one-line usage error (exit 2) naming the file, never a
+    traceback. A path that simply doesn't exist loads as the empty config; the
     explicit ``--config``-typo case is rejected earlier, in ``check``.
     """
     try:
@@ -282,9 +284,43 @@ def _load_rule_config(path: Path) -> tuple[RuleConfig, str, dict]:
         syntax_mode = "error"
         if data.get("syntax_errors") is not None:
             syntax_mode = parse_syntax_errors_knob(data["syntax_errors"])
+        dynamic_mode = "warning"
+        if data.get("dynamic_sql") is not None:
+            dynamic_mode = _parse_dynamic_sql_knob(data["dynamic_sql"])
     except StandardsError as exc:
         raise click.UsageError(f"could not load config {path}: {exc}") from exc
-    return config, syntax_mode, data
+    return config, syntax_mode, dynamic_mode, data
+
+
+_DYNAMIC_SQL_MODES = ("error", "warning", "off")
+
+
+def _parse_dynamic_sql_knob(raw: object) -> str:
+    """The ``dynamic_sql: error|warning|off`` knob (default ``warning``) — same
+    shape and YAML-1.1 tolerance as core's ``syntax_errors`` parser (an unquoted
+    ``off`` arrives as the boolean ``False``)."""
+    candidate = "off" if raw is False else str(raw).strip().lower()
+    if candidate not in _DYNAMIC_SQL_MODES:
+        raise StandardsError(f"`dynamic_sql` must be one of {', '.join(_DYNAMIC_SQL_MODES)} (got '{raw}')")
+    return candidate
+
+
+def _apply_dynamic_sql_policy(diagnostics: list[Diagnostic], mode: str) -> list[Diagnostic]:
+    """Apply the ``dynamic_sql`` knob to DYNAMIC_SQL diagnostics, leaving every
+    other diagnostic untouched: ``off`` drops them, ``error`` promotes them (so
+    ``--strict`` gates on un-analyzed dynamic SQL), ``warning`` (default) keeps
+    them as emitted. Only ``off`` removes the line — a coverage gap is never
+    silent otherwise."""
+    from dataclasses import replace
+
+    if mode == "warning":
+        return diagnostics
+    if mode == "off":
+        return [d for d in diagnostics if d.category != DYNAMIC_SQL]
+    return [
+        replace(d, severity="error") if d.category == DYNAMIC_SQL and d.severity != "error" else d
+        for d in diagnostics
+    ]
 
 
 def _open_report(path: Path) -> None:
@@ -604,7 +640,7 @@ def check(
     cfg_path, cfg_notes = _discover_config_path(config_path, std_path, save_ignores)
     for note in cfg_notes:
         click.echo(note, err=True)
-    config, syntax_mode, cfg_data = _load_rule_config(cfg_path)
+    config, syntax_mode, dynamic_mode, cfg_data = _load_rule_config(cfg_path)
     rules = apply_config(all_rules(), config)
     unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
     # SQL target: skip rules that don't apply to it (e.g. Fabric-DW-only type rules under
@@ -688,6 +724,10 @@ def check(
     result.diagnostics = apply_syntax_error_policy(
         result.diagnostics, syntax_mode, texts={pf.path: pf.text for pf in parsed}, tool=TOOL
     )
+    # Dynamic-SQL diagnostics (issue #19: string-built statements no rule can see)
+    # obey the rules.yml `dynamic_sql` knob the same way: `off` drops, `error`
+    # promotes (--strict then gates on them), `warning` (default) keeps.
+    result.diagnostics = _apply_dynamic_sql_policy(result.diagnostics, dynamic_mode)
     # The full set of fingerprints this run produced (pre-baseline, pre-ignore) so a
     # stale ignore entry can be told from one another filter already consumed. An
     # entry matching only an agent-review item is NOT stale.

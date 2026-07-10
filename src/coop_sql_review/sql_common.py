@@ -112,6 +112,14 @@ _TIME_TRAVEL_RE = re.compile(
 )  # OPTION (FOR TIMESTAMP AS OF '...')
 _MASKED_WITH_RE = re.compile(r"\bMASKED\s+WITH\b", re.IGNORECASE)  # dynamic data masking column constraint
 
+# Dynamic execution with a concatenated argument (`EXEC('...' + @suffix)`,
+# `EXEC(@a + @b)`). Valid T-SQL that sqlglot's tsql dialect cannot parse — it
+# raises "Expecting )" on the `+` (the tolerant recovery still yields the
+# Execute node, so had_none stays False). A single-literal/-variable EXEC(...)
+# parses fine and never reaches the classifier. (Found during issue #19's
+# dynamic-SQL work; the site also gets a `dynamic_sql` diagnostic either way.)
+_DYNAMIC_EXEC_ARG_RE = re.compile(r"\bEXEC(?:UTE)?\s*\(", re.IGNORECASE)
+
 
 def _description_is_gap(description: str, constructs: frozenset[str]) -> bool:
     """Whether one sqlglot error description is a known gap on *valid* T-SQL,
@@ -132,6 +140,8 @@ def _description_is_gap(description: str, constructs: frozenset[str]) -> bool:
         return True  # statement-level time travel: OPTION (FOR TIMESTAMP AS OF '...')
     if "masked" in constructs and description == "Expecting )":
         return True  # MASKED WITH (FUNCTION='...') dynamic data masking
+    if "dynamic_exec" in constructs and description == "Expecting )":
+        return True  # EXEC('...' + @var) — concatenated dynamic-execution argument
     return False
 
 
@@ -171,6 +181,7 @@ def _is_sqlglot_gap(masked_batch: str, descriptions: list[str], had_none: bool) 
             ("openrowset", _OPENROWSET_RE),
             ("time_travel", _TIME_TRAVEL_RE),
             ("masked", _MASKED_WITH_RE),
+            ("dynamic_exec", _DYNAMIC_EXEC_ARG_RE),
         )
         if pattern.search(masked_batch) is not None
     )

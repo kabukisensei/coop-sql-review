@@ -302,6 +302,16 @@ syntax_errors: warning   # error (default) | warning (demote but keep) | off (hi
 `--strict`); `off` hides it entirely. To silence a single spot instead, use the inline
 `ignore syntax` comment in §9.
 
+**Dynamic SQL** (`EXEC('…')`, `EXEC(@sql)`, `sp_executesql`) can't be checked — statements
+built in strings are invisible to every rule. So the tool never pretends it looked: each
+dynamic-execution site is reported as a `dynamic_sql` **warning diagnostic** (a plain
+procedure call like `EXEC silver.usp_x` is *not* flagged). Tune it with a top-level
+`dynamic_sql:` key in `rules.yml`, same shape as `syntax_errors:`:
+
+```yaml
+dynamic_sql: off   # warning (default) | error (fail --strict on it) | off (hide)
+```
+
 To check against the team's canonical standards file directly:
 ```
 coop-sql-review check sql-folder --standards path/to/sql-standards.md
