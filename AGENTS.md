@@ -355,10 +355,21 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
   line above; bare/`*` = all) and a fingerprint **baseline** (`--write-baseline` / `--baseline`) for
   ratcheting on a legacy estate. Both filter findings **and `agent_review` items** in `check` before
   the `--min-severity` floor (`--write-baseline` records agent fingerprints too). Fingerprints are
-  path-free — `(rule_id, object, message/note)`, no file, no line — so baselines/ignores survive a
-  cwd or machine change (schema_version 3: an empty `object` falls back to the file **basename** so
-  object-less findings in different files don't collapse to one fingerprint; coop-dax-review is
-  still on its v2 identity, so the two tools' fingerprint rules are no longer identical).
+  path- and line-free, and follow the **family identity rule** — IDENTICAL in coop-dax-review
+  (which adds its `model` component) since schema_version 4 here / 3 there:
+  `(rule_id, object-or-file-basename, fingerprint_key-or-message/note, occurrence ordinal)`.
+  An empty `object` falls back to the file **basename** (object-less findings in different files
+  don't collapse to one fingerprint); a rule whose message embeds volatile detail (counts, name
+  lists) sets a stable `fingerprint_key` via `ctx.finding(fingerprint_key=...)` (no sql rule needs
+  one yet — dax's three volatile-message rules do); and the **occurrence ordinal** (0-based,
+  stamped by the engine in the deterministic sort order on the full pre-suppression result)
+  discriminates N same-identity occurrences, so baselining a proc with one `SELECT *` never
+  silently suppresses a FUTURE `SELECT *` added to it (issue #16's ratchet hole). Deliberate
+  trade-off: adding/removing an occurrence above a same-identity sibling shifts the sibling's
+  ordinal — it resurfaces and its old baseline entry goes stale **loudly**; unrelated line shifts
+  and file moves still never change an identity. The SARIF `partialFingerprints` KEY stays frozen
+  at `coopFingerprint/v2` (GitHub matches alerts by key+value; the values changed at v4, the label
+  deliberately did not — see `report.py`).
 - **`rules.yml` `ignore:` list** — a third, human-readable suppression: fingerprint-matched entries
   living in the writable `rules.yml` (`RuleConfig.ignored_fingerprints` from core). `check` filters
   findings and `agent_review` items right after the baseline block, before the `--min-severity`
@@ -487,5 +498,6 @@ This repo's work queue is its GitHub issues labeled **`agent:ready`**:
   rules above).
 - An open issue WITHOUT the `agent:ready` label is waiting on a human decision —
   leave it alone.
-- **#16 (fingerprint schema v4) must be implemented together with
-  coop-dax-review#14** — one coordinated family identity bump, or not at all.
+- Fingerprint-identity changes are a FAMILY affair: coop-sql-review and
+  coop-dax-review share one identity construction (see `suppressions.py` above)
+  and must bump together (as #16 + dax#14 did), never fork.

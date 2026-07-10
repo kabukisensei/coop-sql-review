@@ -34,6 +34,34 @@ field and are called out here.
   (README section 7). Chrome stays ASCII and deterministic; the JSON contract is unchanged.
 
 ### Changed
+- **BREAKING (one-time): the family fingerprint identity rule — JSON `schema_version` → 4**
+  (issue #16; landed together with coop-dax-review#14, whose `schema_version` goes 2 → 3 with the
+  **identical** construction — the family's identity rules are in lockstep again). A fingerprint
+  is now `(rule_id, object-or-file-basename, fingerprint_key-or-message, occurrence ordinal)`:
+  - **Occurrence ordinal** (the ratchet fix): a constant-message rule's N occurrences inside one
+    object used to collapse to ONE fingerprint, so baselining a proc with one `SELECT *` silently
+    suppressed every *future* `SELECT *` added to it. Occurrences are now numbered 0, 1, 2, ... in
+    the deterministic sort order (stamped on the full pre-suppression result); the first
+    occurrence keeps ordinal 0. Deliberate trade-off: adding/removing an occurrence *above* a
+    same-identity sibling shifts the sibling's ordinal — it resurfaces (and its old baseline entry
+    is reported stale, loudly); unrelated line shifts and file moves still never change an
+    identity.
+  - **`Finding.fingerprint_key`** (optional; empty = the message is the identity, the default): a
+    rule whose display message embeds volatile detail (counts, name lists) can expose a stable
+    identity core via `ctx.finding(fingerprint_key=...)`. No coop-sql-review rule needs it today;
+    it exists so the family construction stays identical to coop-dax-review, whose three
+    volatile-message rules set it.
+  - The SARIF `partialFingerprints` KEY stays frozen at `coopFingerprint/v2` — GitHub code
+    scanning matches alerts by (key, value); the *values* change with this bump (existing alerts
+    close and re-open once), but the label deliberately survives so any future key change remains
+    an explicit choice.
+
+  **Migration (one-time):** every pre-v4 fingerprint stops matching — regenerate baselines and
+  saved ignores once: re-run `coop-sql-review check <paths> --write-baseline baseline.json`, and
+  rebuild the `rules.yml` `ignore:` list with `coop-sql-review check <paths> --save-ignores` (or
+  delete the stale entries by hand). Until then the old entries surface **loudly** as `baseline` /
+  `ignore_stale` warning diagnostics on every run — never a silent mismatch. Same playbook as the
+  v2 (0.5.0) and v3 (0.7.0) bumps.
 - **`SQL-FILTER-UPSTREAM` no longer drowns the agent-review channel** (issue #17). JOIN+WHERE
   is the shape of nearly every production SELECT, so this one rule's identical boilerplate was
   ~90% of all agent-review items on a real estate. Two changes: the rule now ships **off by

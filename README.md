@@ -362,7 +362,16 @@ construct isn't re-raised on every run:
   of line numbers **and file paths** — edits above a statement don't disturb it, and neither does
   running the tool from a different folder (or machine) than the one that wrote the baseline. A
   baseline entry that no longer matches anything (you fixed it) is reported as a diagnostic;
-  re-run `--write-baseline` to prune.
+  re-run `--write-baseline` to prune. Repeats of the same issue inside one object each get their
+  own fingerprint (numbered in file order), so a baseline never hides a *new* repeat added later.
+
+  > **One-time migration (schema_version 4):** the fingerprint identity changed in this release
+  > (an occurrence ordinal now discriminates repeats — coordinated with coop-dax-review's
+  > schema 3, one family rule). Delete and regenerate any baseline files and `rules.yml`
+  > `ignore:` lists written by earlier versions once:
+  > `coop-sql-review check <paths> --write-baseline baseline.json` and re-run
+  > `coop-sql-review check <paths> --save-ignores`. Until then, old entries are reported loudly
+  > as stale diagnostics on every run — nothing goes silently missing.
 - **`rules.yml` ignore list** — a human-readable list of individual findings to silence, kept
   right in your `rules.yml` (the one file you edit). Add an `ignore:` block of fingerprints:
   ```yaml

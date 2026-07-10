@@ -29,8 +29,9 @@ def test_json_contract_keys():
     assert payload["version"] == "0.1.0"
     assert payload["standards"] == {"path": "docs/standards.md", "sha256": "abc123"}
     assert payload["summary"] == {"error": 0, "warning": 2, "info": 0}
-    # v3: empty-object fingerprints substitute the file basename (still cwd-independent).
-    assert payload["schema_version"] == 3
+    # v4: the family identity rule — fingerprint = (rule_id, object-or-basename,
+    # fingerprint_key-or-message, occurrence ordinal); regenerate baselines once.
+    assert payload["schema_version"] == 4
     assert set(payload["verdict"]) == {"clean", "highest_severity"}
     first = payload["findings"][0]
     assert set(first) == {

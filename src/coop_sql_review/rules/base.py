@@ -77,8 +77,21 @@ class RuleContext:
                 return default
         return value
 
-    def finding(self, *, line: int, object: str, message: str, severity: str | None = None) -> Finding:
-        """Build a Finding stamped with this rule's id, severity, and ref."""
+    def finding(
+        self,
+        *,
+        line: int,
+        object: str,
+        message: str,
+        severity: str | None = None,
+        fingerprint_key: str = "",
+    ) -> Finding:
+        """Build a Finding stamped with this rule's id, severity, and ref.
+
+        A rule whose ``message`` embeds volatile detail (counts, name lists)
+        passes a stable ``fingerprint_key`` so its suppression identity survives
+        unrelated edits; everything else leaves it empty (message = identity).
+        """
         return Finding(
             rule_id=self.rule.id,
             severity=severity or self.rule.severity,
@@ -87,9 +100,10 @@ class RuleContext:
             object=object,
             message=message,
             standard_ref=self.rule.standard_ref,
+            fingerprint_key=fingerprint_key,
         )
 
-    def review(self, *, object: str, line: int, note: str) -> AgentReviewItem:
+    def review(self, *, object: str, line: int, note: str, fingerprint_key: str = "") -> AgentReviewItem:
         """Build an agent-review item stamped with this rule's id and ref."""
         return AgentReviewItem(
             rule_id=self.rule.id,
@@ -98,4 +112,5 @@ class RuleContext:
             line=line,
             note=note,
             standard_ref=self.rule.standard_ref,
+            fingerprint_key=fingerprint_key,
         )

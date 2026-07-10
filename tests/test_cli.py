@@ -165,18 +165,17 @@ def test_baseline_lets_new_findings_through(tmp_path):
     assert "b.sql" in out
 
 
-def test_baseline_suppresses_same_qualified_object_in_another_file(tmp_path):
+def test_baseline_written_over_both_duplicates_suppresses_both(tmp_path):
     # Fingerprints are path-free: the SAME rule + NON-EMPTY object + message in a second
-    # file IS the same logical issue, so the baseline suppresses both (by design). Both
-    # files define silver.p, so each SELECT * carries object="silver.p".
-    # (Object-LESS findings do NOT collapse — see test_suppressions.py; issue #3.)
+    # file shares the identity CORE, and the occurrence ordinal (schema_version 4)
+    # discriminates the two. A baseline written while BOTH exist records both ordinals
+    # and suppresses both; a duplicate added AFTER the baseline is a NEW occurrence and
+    # surfaces instead (the ratchet fix — see test_fingerprint_identity.py, issue #16).
     body = "CREATE OR ALTER PROCEDURE silver.p AS BEGIN SELECT * FROM t; END\n"
-    a = tmp_path / "a.sql"
-    a.write_text(body, encoding="utf-8")
+    (tmp_path / "a.sql").write_text(body, encoding="utf-8")
+    (tmp_path / "b.sql").write_text(body, encoding="utf-8")
     bl = tmp_path / "bl.json"
-    CliRunner().invoke(cli, ["check", str(a), "--write-baseline", str(bl)])
-    b = tmp_path / "b.sql"
-    b.write_text(body, encoding="utf-8")
+    CliRunner().invoke(cli, ["check", str(tmp_path), "--write-baseline", str(bl)])
     out = CliRunner().invoke(cli, ["check", str(tmp_path), "--baseline", str(bl)]).output
     assert "SQL-NO-SELECT-STAR" not in out
     assert "no issues" in out

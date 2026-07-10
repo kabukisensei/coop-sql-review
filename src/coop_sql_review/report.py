@@ -83,7 +83,15 @@ def rule_counts(result: Result) -> list[tuple[str, str, int]]:
 # BASENAME for the object part, so object-less findings no longer collapse to one
 # fingerprint across files (a baselined one could otherwise silently hide a new one
 # elsewhere). Baselines/ignore lists holding object-less fingerprints regenerate once.
-SCHEMA_VERSION = 3
+# v4: the FAMILY identity rule (issue #16; coop-dax-review#14 is its schema-3 twin —
+# the two tools' fingerprint construction is identical again): identity is
+# (rule_id, object-or-file-basename, fingerprint_key-or-message, occurrence ordinal).
+# The ordinal (0-based, in the deterministic sort order) discriminates N occurrences
+# of the same logical issue, closing the ratchet hole where baselining one SELECT *
+# in a proc silently suppressed every FUTURE one added to it; the optional
+# fingerprint_key lets a volatile-message rule expose a stable identity core.
+# ALL fingerprints change: regenerate baselines and rules.yml ignore lists once.
+SCHEMA_VERSION = 4
 
 
 def _verdict(result: Result) -> dict:
@@ -153,12 +161,12 @@ def json_text(result: Result, *, version: str, standards: dict[str, str]) -> str
 _SARIF_INFO_URI = "https://github.com/kabukisensei/coop-sql-review"
 # The partialFingerprints KEY stays deliberately frozen at core's default
 # ("coopFingerprint/v2"). GitHub code scanning matches alerts across runs by
-# (key, value) pair; renaming the key to v3 would orphan every existing alert and
-# re-open it as new. The VALUES are the current schema_version-3 identities
-# (Finding/AgentReviewItem.fingerprint(): empty objects fall back to the file
-# basename) — only the label stays put. Bump the key (core `to_sarif`'s
-# ``fingerprint_key``) only if a future scheme changes identities so broadly that
-# a clean alert reset is the better trade.
+# (key, value) pair; renaming the key would orphan every existing alert and
+# re-open it as new. The VALUES are the current schema_version-4 identities
+# (Finding/AgentReviewItem.fingerprint(): the family rule — object-or-basename,
+# fingerprint_key-or-message, occurrence ordinal) — only the label stays put.
+# Bump the key (core `to_sarif`'s ``fingerprint_key``) only if a future scheme
+# changes identities so broadly that a clean alert reset is the better trade.
 
 
 def to_sarif(result: Result, *, version: str, standards: dict[str, str]) -> str:
