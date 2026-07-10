@@ -903,6 +903,20 @@ def test_target_azure_sql_skips_fabric_only_type_rules(tmp_path):
     assert "SQL-TYPE-MONEY" not in azure_out and "SQL-TYPE-UNSUPPORTED" not in azure_out
 
 
+def test_target_azure_sql_skips_ctas_derived_type_findings(tmp_path):
+    # issue #20: CTAS-synthesized columns feed the same Fabric-only type rules,
+    # so they too vanish under --target azure-sql.
+    f = tmp_path / "t.sql"
+    f.write_text(
+        "CREATE TABLE silver.t AS SELECT CAST(a AS money) AS Amount FROM s.x;\n",
+        encoding="utf-8",
+    )
+    default_out = CliRunner().invoke(cli, ["check", str(f)]).output
+    assert "SQL-TYPE-MONEY" in default_out
+    azure_out = CliRunner().invoke(cli, ["check", str(f), "--target", "azure-sql"]).output
+    assert "SQL-TYPE-MONEY" not in azure_out
+
+
 def test_target_azure_sql_skips_alter_column_and_query_label(tmp_path):
     # ALTER COLUMN is plain GA T-SQL on Azure SQL, and OPTION(LABEL=...) is a
     # Fabric/Synapse-only hint — so --target azure-sql skips SQL-NO-ALTER-COLUMN

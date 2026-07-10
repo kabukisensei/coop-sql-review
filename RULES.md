@@ -13,6 +13,11 @@ Some rules ship **off by default** (`SQL-ALIAS-DESCRIPTIVE`, `SQL-CTE-PREFIX`,
 
 ## Deterministic rules — build these
 
+> **CTAS coverage.** The §9 type rules read both `CREATE TABLE (...)` column lists and — since
+> issue #20 — the explicit `CAST`/`TRY_CAST`/`CONVERT` targets of a CTAS's projections (a
+> `CAST(x AS money) AS Amount` creates a `money` column exactly as a column list would).
+> Uncast CTAS projections stay un-typed — that's `SQL-CTAS-EXPLICIT-CAST`'s territory.
+
 > **SQL target.** Rules marked *(fabric-dw only)* enforce a Fabric Data Warehouse limitation
 > (table types, `ALTER COLUMN`) or a Fabric-only syntax surface (`OPTION(LABEL=...)`) that
 > Azure (serverless) SQL does not share. They run by default (`--target fabric-dw`); pass

@@ -327,7 +327,9 @@ Pure core, side effects only at the CLI edge. Data flows as plain dataclasses.
   GO-batch's file start line) and `mask_noncode` (blanks comment/string content while preserving
   every character offset and newline, so regex rules scan code only and still map to exact lines).
 - **`sql_model.py` / `parser.py`** — `parse_sql()` → `ParsedFile` holding batches+AST, comments,
-  extracted `SqlObject`s (with typed `ColumnDef`s), and diagnostics. Each batch is parsed via
+  extracted `SqlObject`s (with typed `ColumnDef`s — from the CREATE TABLE column list, or for a
+  CTAS synthesized from the projections' explicit `CAST`/`TRY_CAST`/`CONVERT` targets, issue
+  #20), and diagnostics. Each batch is parsed via
   `sql_common.parse_batch_strict` (sqlglot at `RAISE` first to catch genuine syntax errors, then a
   tolerant `IGNORE` re-parse for partial analysis); `_record_parse_diagnostics` turns real errors
   into `syntax_error` diagnostics and known sqlglot grammar-gaps on valid T-SQL into

@@ -142,6 +142,56 @@ def _columns_from_schema(
     return columns
 
 
+def _ctas_projections(query: exp.Expression) -> list[exp.Expression]:
+    """The output projections of a CTAS body. Unwraps a parenthesized
+    ``Subquery``; for a set operation the LEFT-most branch is used — in T-SQL it
+    names (and effectively types) the output columns."""
+    while True:
+        if isinstance(query, exp.Subquery) and isinstance(query.this, exp.Query):
+            query = query.this
+        elif isinstance(query, exp.SetOperation) and isinstance(query.this, exp.Query):
+            query = query.this
+        else:
+            break
+    return list(query.expressions) if isinstance(query, exp.Select) else []
+
+
+def _columns_from_ctas(
+    query: exp.Expression, dialect: str, batch: Batch, parsed: ParsedFile
+) -> list[ColumnDef]:
+    """Synthesized column contracts for a CTAS output (issue #20).
+
+    A CTAS has no column list, but a projection that explicitly pins a type —
+    ``CAST(x AS money) AS Amount`` (``TRY_CAST``/``CONVERT`` too) — creates a
+    persisted ``money`` column exactly as ``CREATE TABLE (Amount money)`` would,
+    so the §9 type rules (and the in-file size maps) must see it. Only cast
+    targets are synthesized; an uncast projection stays un-typed — no guessing —
+    which remains SQL-CTAS-EXPLICIT-CAST's territory.
+    """
+    columns: list[ColumnDef] = []
+    for projection in _ctas_projections(query):
+        inner = projection.this if isinstance(projection, exp.Alias) else projection
+        if isinstance(inner, exp.Convert):
+            kind = inner.this  # CONVERT(<type>, <expr>)
+        elif isinstance(inner, exp.Cast):  # TryCast subclasses Cast
+            kind = inner.args.get("to")
+        else:
+            continue
+        if not isinstance(kind, exp.DataType):
+            continue
+        columns.append(
+            ColumnDef(
+                name=projection.alias_or_name or "",
+                data_type=kind.sql(dialect=dialect).upper(),
+                base_type=_base_type(kind),
+                line=parsed.node_line(batch, inner),
+                nullable=True,  # a CTAS projection's nullability isn't declared
+                constraints=[],
+            )
+        )
+    return columns
+
+
 def _extract_object(create: exp.Create, batch: Batch, parsed: ParsedFile, dialect: str) -> SqlObject | None:
     """Build a SqlObject from a CREATE TABLE/VIEW/PROCEDURE, or None."""
     kind = (create.kind or "").upper()
@@ -152,14 +202,17 @@ def _extract_object(create: exp.Create, batch: Batch, parsed: ParsedFile, dialec
         if not isinstance(table, exp.Table):
             return None
         schema, name = table_parts(table)
+        is_ctas = isinstance(create.expression, exp.Query)
         columns = _columns_from_schema(schema_expr, dialect, batch, parsed) if schema_expr else []
+        if not columns and is_ctas:
+            columns = _columns_from_ctas(create.expression, dialect, batch, parsed)
         return SqlObject(
             kind="table",
             schema=schema,
             name=name,
             display_name=original_name(table.name),
             line=parsed.node_line(batch, table),
-            is_ctas=isinstance(create.expression, exp.Query),
+            is_ctas=is_ctas,
             is_temp=is_temp_table(table),
             columns=columns,
         )

@@ -182,3 +182,79 @@ def test_type_rules_are_tagged_fabric_only():
 
     for rule in (NVARCHAR_RULE, DATETIME_RULE, MONEY_RULE, UNSUPPORTED_RULE):
         assert rule.targets == FABRIC_ONLY
+
+
+# --- CTAS projections pin types the §9 rules must see (issue #20) -----------
+
+CTAS_SQL = """\
+CREATE TABLE silver.dim_price AS
+SELECT CAST(x.amount AS money) AS Amount,
+       CAST(x.d AS datetime)   AS CreatedDt
+FROM bronze.raw_prices AS x;
+"""
+
+
+def test_ctas_cast_to_money_and_datetime_fire_with_object_and_lines():
+    # The issue's sample: a CTAS creating money/datetime columns fired NOTHING.
+    money = run(MONEY_RULE, CTAS_SQL)
+    assert len(money) == 1
+    assert money[0].object == "silver.dim_price"
+    assert money[0].line == 2  # the CAST(... AS money) projection's line
+    assert "Amount" in money[0].message
+    dt = run(DATETIME_RULE, CTAS_SQL)
+    assert len(dt) == 1
+    assert dt[0].object == "silver.dim_price"
+    assert dt[0].line == 3
+    assert "CreatedDt" in dt[0].message
+
+
+def test_ctas_recommended_types_and_uncast_projections_stay_clean():
+    sql = (
+        "CREATE TABLE silver.dim_price AS\n"
+        "SELECT CAST(x.amount AS decimal(19, 4)) AS Amount,\n"
+        "       TRY_CAST(x.d AS datetime2(3)) AS CreatedDt,\n"
+        "       x.name AS PriceName\n"
+        "FROM bronze.raw_prices AS x;\n"
+    )
+    for rule in (NVARCHAR_RULE, DATETIME_RULE, MONEY_RULE, DEPRECATED_RULE, UNSUPPORTED_RULE):
+        assert run(rule, sql) == []
+
+
+def test_ctas_try_cast_and_convert_targets_are_seen():
+    sql = (
+        "CREATE TABLE silver.t AS SELECT TRY_CAST(a AS smallmoney) AS A, "
+        "CONVERT(nvarchar(50), b) AS B FROM s.x;"
+    )
+    assert len(run(MONEY_RULE, sql)) == 1
+    assert len(run(NVARCHAR_RULE, sql)) == 1
+
+
+def test_ctas_set_operation_body_uses_left_branch():
+    sql = (
+        "CREATE TABLE silver.t AS\n"
+        "SELECT CAST(a AS money) AS Amount FROM s.x\n"
+        "UNION ALL\n"
+        "SELECT CAST(b AS money) AS Amount FROM s.y;\n"
+    )
+    findings = run(MONEY_RULE, sql)
+    assert len(findings) == 1  # one output column -> one finding, from the left branch
+    assert findings[0].object == "silver.t"
+
+
+def test_ctas_inside_proc_body_is_seen():
+    sql = (
+        "CREATE OR ALTER PROCEDURE silver.p AS\n"
+        "BEGIN\n"
+        "    CREATE TABLE silver.t AS SELECT CAST(a AS money) AS Amount FROM s.x;\n"
+        "END\n"
+    )
+    findings = run(MONEY_RULE, sql)
+    assert len(findings) == 1
+    assert findings[0].object == "silver.t"
+
+
+def test_create_table_with_column_list_behavior_unchanged():
+    # A plain column list must not gain or lose findings from the CTAS path.
+    findings = run(MONEY_RULE, POSITIVE_SQL)
+    assert len(findings) == 1
+    assert findings[0].line == 5  # the `price MONEY` column line, as before

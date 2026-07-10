@@ -7,6 +7,17 @@ field and are called out here.
 
 ## [Unreleased]
 ### Added
+- **The §9 type rules now see CTAS projections** (issue #20). `CREATE TABLE ... AS SELECT
+  CAST(x AS money) AS Amount ...` creates a persisted `money` column exactly as a column list
+  would, but produced no `SQL-TYPE-*` finding — the estate's most idiomatic table-creation
+  path (the one the tool itself recommends via `SQL-CTAS-EXPLICIT-CAST` and the ALTER COLUMN
+  workaround) was invisible to the type rules. The parser now synthesizes `ColumnDef`s from a
+  CTAS's explicit `CAST`/`TRY_CAST`/`CONVERT` projection targets (alias as the column name,
+  the cast's line), so all five type rules — and the in-file size maps behind
+  `SQL-NARROWING-CAST`/`SQL-IMPLICIT-CONVERT` — cover CTAS tables, including set-operation
+  bodies (left branch) and CTAS inside proc bodies. Uncast projections stay un-typed (no
+  guessing — that remains `SQL-CTAS-EXPLICIT-CAST`'s territory); plain column-list behavior
+  and finding counts are unchanged; `--target azure-sql` still skips the Fabric-only rules.
 - **Dynamic SQL is no longer a silent blind spot** (issue #19). Statements built in strings
   (`EXEC('...')`, `EXEC(@sql)`, `sp_executesql`) are invisible to every rule — and the tool
   used to say nothing about them. Each dynamic-execution site now surfaces as a `dynamic_sql`
