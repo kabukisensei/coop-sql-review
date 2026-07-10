@@ -5,7 +5,7 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
-## [Unreleased]
+## [0.10.0] — 2026-07-09
 ### Added
 - **The §9 type rules now see CTAS projections** (issue #20). `CREATE TABLE ... AS SELECT
   CAST(x AS money) AS Amount ...` creates a persisted `money` column exactly as a column list
@@ -497,6 +497,7 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.10.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.10.0
 [0.9.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.8.0
 [0.7.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.7.1
