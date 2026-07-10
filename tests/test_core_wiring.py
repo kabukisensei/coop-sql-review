@@ -69,7 +69,6 @@ def test_shim_reexports_still_resolve():
         DependencyStatus,
         UpgradeError,
         UpgradePlan,
-        apply_plan,
         build_plan,
         classify_update,
         is_vcs_spec,

@@ -326,10 +326,9 @@ def test_upgrade_shows_command_without_applying(monkeypatch):
         tool_note="latest release is 0.2.0",
     )
     monkeypatch.setattr(upmod, "build_plan", lambda *a, **k: plan)
-    # If anything tried to apply, it would call subprocess; make that explode.
-    monkeypatch.setattr(
-        upmod, "apply_plan", lambda *a, **k: (_ for _ in ()).throw(AssertionError("applied!"))
-    )
+    # Nothing to self-apply with: apply_plan was removed from core (core#5) and
+    # this shim no longer re-exports it — pin that so it can't quietly return.
+    assert not hasattr(upmod, "apply_plan")
     result = CliRunner().invoke(cli, ["upgrade"])
     assert result.exit_code == 0
     assert "pipx upgrade coop-sql-review" in result.output

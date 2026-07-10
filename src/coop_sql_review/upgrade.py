@@ -13,7 +13,6 @@ from coop_review_core.upgrade import (  # noqa: F401
     DependencyStatus,
     UpgradeError,
     UpgradePlan,
-    apply_plan,
     classify_update,
     is_vcs_spec,
     upgrade_command,

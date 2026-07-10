@@ -108,10 +108,10 @@ configured the run), else `./rules.yml` — never the bundled standards dir in t
 whether a newer release exists, then *print* the command to run (`upgrade.upgrade_command(plan)`,
 per install method — e.g. `pipx upgrade coop-sql-review`); the user runs it in a fresh terminal.
 Rationale: a running program can't reliably replace its own files (its console-script `.exe` is
-locked on Windows). `upgrade.apply_plan` (the actual subprocess runner) is retained as tested
-library API but is no longer invoked by the CLI; `upgrade_command` mirrors the command(s)
-`apply_plan` would run — a list (git-checkout pulls then reinstalls; one command otherwise) — with
-display-friendly tokens (`python` over `sys.executable`). `--check` reports status only.
+locked on Windows). The old `apply_plan` subprocess self-apply path was **removed from core**
+(coop-review-core#5) and this shim no longer re-exports it; `upgrade_command` mirrors the
+command(s) it would have run — a list (git-checkout pulls then reinstalls; one command otherwise)
+— with display-friendly tokens (`python` over `sys.executable`). `--check` reports status only.
 
 **HTML report (`--format html`)** is self-contained and Cooptimize-branded: `report.to_html`
 inlines the CSS (brand palette: navy `#004068`, accent `#e84028`, green gradient) and base64-embeds
