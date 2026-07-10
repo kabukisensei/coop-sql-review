@@ -6,6 +6,14 @@ The JSON output is a machine contract (`schema_version`); breaking changes to it
 field and are called out here.
 
 ## [Unreleased]
+### Added
+- **"Findings by rule" triage table** (issue #18). The console SUMMARY, the Markdown report,
+  and the HTML report now break the finding counts down per rule (noisiest first, then rule
+  id) — the actionable next step (`rules.yml` `enabled: false` / a severity override /
+  `ignore:`) is per-rule, so the report says which rule to tune without eyeballing every file
+  section. When one rule reaches 10+ findings, a one-line tip points at the `rules.yml` knobs
+  (README section 7). Chrome stays ASCII and deterministic; the JSON contract is unchanged.
+
 ### Changed
 - **`SQL-FILTER-UPSTREAM` no longer drowns the agent-review channel** (issue #17). JOIN+WHERE
   is the shape of nearly every production SELECT, so this one rule's identical boilerplate was
@@ -17,6 +25,12 @@ field and are called out here.
   unchanged).
 
 ### Fixed
+- **`--strict` help now names all three exit-2 conditions** (issue #18): findings at/above
+  `--min-severity`, any remaining error-severity diagnostic (a real syntax error, a rule
+  crash, an unreadable file), and zero files checked. The gate itself is unchanged — the
+  README documented it, but a CI author reading `--help` couldn't predict that a syntax error
+  fails the build. (The third part of issue #18 — reading `rules.yml` only once per run — had
+  already landed with the core 0.4.0 adoption; a regression test now locks it in.)
 - **`SQL-SARGABILITY` no longer contradicts `SQL-JOIN-FILTER` on COALESCE key-alignment
   joins** (issue #15). The key-alignment tolerance (`COALESCE`/`CAST`/`CONVERT`/`COLLATE`
   containing only key material, nesting included) now lives once in `rules/helpers.py`

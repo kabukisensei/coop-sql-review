@@ -526,7 +526,9 @@ def cli(ctx: click.Context) -> None:
 @click.option(
     "--strict",
     is_flag=True,
-    help="Exit 2 if any reported finding remains, or if no files were checked (opt-in CI gate).",
+    help="Opt-in CI gate: exit 2 if any reported finding remains (at/above --min-severity), "
+    "if any error-severity diagnostic remains (a real syntax error, a rule crash, an "
+    "unreadable file), or if no files were checked.",
 )
 @click.pass_context
 def check(

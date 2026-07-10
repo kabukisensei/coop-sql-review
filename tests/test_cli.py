@@ -58,6 +58,40 @@ def test_strict_gate_exits_nonzero():
     assert result.exit_code == 2
 
 
+def test_strict_help_documents_all_three_gate_conditions():
+    # issue #18: a CI author reading --help must be able to predict every exit-2
+    # condition — findings, error-severity diagnostics, and zero files checked.
+    out = CliRunner().invoke(cli, ["check", "--help"]).output
+    idx = out.rindex("--strict")  # the option row (the docstring mentions the flag earlier)
+    strict_help = out[idx : idx + 400]
+    assert "finding" in strict_help
+    assert "error-severity diagnostic" in strict_help
+    assert "syntax error" in strict_help
+    assert "no files were checked" in strict_help
+
+
+def test_config_file_is_read_exactly_once_per_run(tmp_path, monkeypatch):
+    # issue #18: rules.yml used to be parsed twice (rule config, then a second
+    # yaml.safe_load just for `target:`). The single load must serve both.
+    f = tmp_path / "t.sql"
+    f.write_text("CREATE TABLE s.t (amt SMALLMONEY);\n", encoding="utf-8")
+    cfg = tmp_path / "rules.yml"
+    cfg.write_text("target: azure-sql\nrules: {}\n", encoding="utf-8")
+    reads: list[Path] = []
+    original = Path.read_text
+
+    def counting_read_text(self, *args, **kwargs):
+        if self.name == "rules.yml":
+            reads.append(self)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    result = CliRunner().invoke(cli, ["check", str(f), "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "SQL-TYPE-MONEY" not in result.output  # the target: key WAS honored...
+    assert len(reads) == 1  # ...from the same single read as the rule config
+
+
 def test_min_severity_filters_findings():
     # the fixture only has warnings; raising the floor to error hides them
     result = CliRunner().invoke(cli, ["check", FIXTURE, "--min-severity", "error"])

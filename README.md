@@ -111,6 +111,10 @@ A typical report looks like this:
 
 ========================================================================
   SUMMARY    0 error   2 warning   0 info
+
+  Findings by rule
+   1  SQL-NO-ALTER-COLUMN  [warning]
+   1  SQL-NO-SELECT-STAR  [warning]
 ========================================================================
   Advisory only - nothing was changed or blocked.
 ```
@@ -119,6 +123,10 @@ A typical report looks like this:
   (`ERROR`/`WARN`/`INFO`), the **rule** that fired and the **§ section** of the standards, then the
   **`file:line`** location and the message. At a terminal the report is colorized; piped or
   redirected (or with `--no-color`, or `NO_COLOR` set) it falls back to plain text.
+- The SUMMARY also totals **findings by rule** (noisiest first), so you can see at a glance
+  *which* rule to tune when one dominates — and when a single rule racks up many findings, a
+  one-line tip points you at the per-rule knobs in `rules.yml` (see §7). The Markdown and HTML
+  reports carry the same "Findings by rule" section.
 - **Severities:**
   - **error** — almost certainly broken. No bundled rule ships at this level today (you can raise
     any rule to `error` in `rules.yml`); a genuinely invalid file surfaces as an error-level

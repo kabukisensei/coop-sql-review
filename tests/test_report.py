@@ -65,6 +65,54 @@ def test_console_mentions_advisory_and_counts():
     assert "agent review" in lines
 
 
+def test_console_summary_has_findings_by_rule_table():
+    # issue #18: triage is per-rule (rules.yml enabled/severity/ignore), so the
+    # SUMMARY carries per-rule counts — sorted by count desc, then rule id.
+    lines = console_lines(_result())
+    idx = next(i for i, ln in enumerate(lines) if "Findings by rule" in ln)
+    table = "\n".join(lines[idx : idx + 3])
+    # equal counts (1 each) -> rule-id order breaks the tie
+    assert table.index("SQL-NO-SELECT-STAR") < table.index("SQL-TYPE-MONEY")
+    assert "1  SQL-NO-SELECT-STAR  [warning]" in table
+
+
+def test_console_by_rule_sorted_by_count_desc_and_hint_at_threshold():
+    findings = [Finding("SQL-NOISY", "info", f"f{i}.sql", i + 1, "", "m", "sA") for i in range(10)] + [
+        Finding("SQL-AAA-RARE", "warning", "g.sql", 1, "", "m", "sB")
+    ]
+    result = Result(findings=sorted(findings, key=lambda f: (f.file, f.line)), files_checked=11)
+    text = "\n".join(console_lines(result))
+    idx = text.index("Findings by rule")
+    # count desc beats alphabetical: the 10x rule leads despite sorting after "SQL-AAA".
+    assert text.index("SQL-NOISY", idx) < text.index("SQL-AAA-RARE", idx)
+    assert "Tip: a noisy rule can be tuned or disabled in rules.yml" in text
+    assert text.isascii()  # the new table + hint chrome stays ASCII (Windows consoles)
+
+
+def test_console_no_hint_below_threshold_and_no_table_when_clean():
+    assert "Tip: a noisy rule" not in "\n".join(console_lines(_result()))  # max count 1
+    assert "Findings by rule" not in "\n".join(console_lines(Result(files_checked=1)))
+
+
+def test_markdown_has_findings_by_rule_section():
+    from coop_sql_review.report import to_markdown
+
+    md = to_markdown(_result(), version="0.1.0", standards=STANDARDS)
+    assert "## Findings by rule" in md
+    assert "| 1 | `SQL-NO-SELECT-STAR` | warning |" in md
+    # section is absent on a clean run
+    clean = to_markdown(Result(files_checked=1), version="0.1.0", standards=STANDARDS)
+    assert "## Findings by rule" not in clean
+
+
+def test_html_has_findings_by_rule_section():
+    html = to_html(_result(), version="0.1.0", standards=STANDARDS)
+    assert "<h2>Findings by rule</h2>" in html
+    assert "1 finding(s)" in html
+    clean = to_html(Result(files_checked=1), version="0.1.0", standards=STANDARDS)
+    assert "Findings by rule" not in clean
+
+
 def test_console_lists_agent_review_items():
     text = "\n".join(console_lines(_result()))
     assert "Agent review (judgment required)" in text  # the section, not just a count

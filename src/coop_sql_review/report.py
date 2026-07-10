@@ -41,7 +41,32 @@ from coop_review_core.report import (
 )
 
 from coop_sql_review.engine import Result
-from coop_sql_review.finding import SEVERITIES
+from coop_sql_review.finding import SEVERITIES, severity_rank
+
+# Findings-by-rule triage (issue #18): the report used to total only by severity,
+# but the user's next step (rules.yml `enabled: false` / a severity override /
+# `ignore:`) is per RULE — so the console/markdown/HTML reports also break the
+# counts down by rule. When one rule dominates, a one-line hint points at the
+# per-rule knobs (README section 7). JSON is unchanged (no schema bump).
+_TRIAGE_HINT_THRESHOLD = 10  # a rule at/above this many findings triggers the hint
+_TRIAGE_HINT = (
+    "Tip: a noisy rule can be tuned or disabled in rules.yml "
+    "(enabled / severity / ignore) - README section 7."
+)
+
+
+def rule_counts(result: Result) -> list[tuple[str, str, int]]:
+    """``(rule_id, severity, count)`` for every rule with findings — sorted by
+    count desc, then rule id, so the noisiest (most actionable) rule leads.
+    The severity shown is the highest seen for that rule. Deterministic."""
+    counts: dict[str, list] = {}
+    for f in result.findings:
+        entry = counts.setdefault(f.rule_id, [f.severity, 0])
+        if severity_rank(f.severity) > severity_rank(entry[0]):
+            entry[0] = f.severity
+        entry[1] += 1
+    return sorted(((rid, sev, n) for rid, (sev, n) in counts.items()), key=lambda t: (-t[2], t[0]))
+
 
 # The terminal report's chrome (banner, badges, labels) stays ASCII so it is
 # safe on a legacy Windows console (cp1252/cp437) and the no-color output is
@@ -287,6 +312,20 @@ def console_lines(
         if diag["error"] or diag["warning"]:
             bits = ", ".join(f"{diag[s]} {s}" for s in ("error", "warning") if diag[s])
             lines.append(" " * 13 + sty(f"diagnostics: {bits}", "dim", color=color))
+        by_rule = rule_counts(result)
+        if by_rule:
+            lines.append("")
+            lines.append("  " + sty("Findings by rule", "bold", color=color))
+            width = len(str(by_rule[0][2]))  # first row carries the max count
+            for rule_id, sev, count in by_rule:
+                lines.append(
+                    f"   {count:>{width}}  "
+                    + sty(rule_id, "bold", color=color)
+                    + "  "
+                    + sty(f"[{sev}]", "dim", color=color)
+                )
+            if by_rule[0][2] >= _TRIAGE_HINT_THRESHOLD:
+                lines.append("   " + sty(_TRIAGE_HINT, "dim", color=color))
     lines.append(sty(bar, "cyan", color=color))
     lines.append("  " + sty("Advisory only - nothing was changed or blocked.", "dim", color=color))
     return lines
@@ -314,6 +353,19 @@ def to_markdown(result: Result, *, version: str, standards: dict[str, str]) -> s
         lines.append(f"- agent review: {len(result.agent_review)} construct(s) need judgment")
     lines.append("")
     lines.append("_Advisory only - nothing was changed or blocked._")
+
+    by_rule = rule_counts(result)
+    if by_rule:
+        lines.append("")
+        lines.append("## Findings by rule")
+        lines.append("")
+        lines.append("| count | rule | severity |")
+        lines.append("|---:|---|---|")
+        for rule_id, sev, count in by_rule:
+            lines.append(f"| {count} | `{rule_id}` | {sev} |")
+        if by_rule[0][2] >= _TRIAGE_HINT_THRESHOLD:
+            lines.append("")
+            lines.append(f"_{_TRIAGE_HINT}_")
 
     by_file: dict[str, list] = {}
     for finding in result.findings:
@@ -383,6 +435,19 @@ def to_html(result: Result, *, version: str, standards: dict[str, str]) -> str:
         + "</div>",
         '<div class="advisory">Advisory only - nothing was changed or blocked.</div>',
     ]
+
+    by_rule = rule_counts(result)
+    if by_rule:
+        parts.append("<h2>Findings by rule</h2>")
+        rows = "".join(
+            f'<div class="f {esc(sev)}">{chip(sev)}'
+            f'<div class="head"><span class="rule">{esc(rule_id)}</span> &middot; '
+            f"{count} finding(s)</div></div>"
+            for rule_id, sev, count in by_rule
+        )
+        parts.append(f'<div class="card">{rows}</div>')
+        if by_rule[0][2] >= _TRIAGE_HINT_THRESHOLD:
+            parts.append(f'<div class="advisory">{esc(_TRIAGE_HINT)}</div>')
 
     by_file: dict[str, list] = {}
     for finding in result.findings:
