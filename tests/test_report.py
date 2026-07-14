@@ -23,6 +23,24 @@ def _result() -> Result:
     )
 
 
+def _result_with_diagnostics() -> Result:
+    # _result() plus one error-severity diagnostic whose message carries markup
+    # that MUST be HTML-escaped in the diagnostics card (issue #29).
+    from coop_sql_review.diagnostics import Diagnostic, SYNTAX_ERROR
+
+    result = _result()
+    result.diagnostics.append(
+        Diagnostic(
+            category=SYNTAX_ERROR,
+            severity="error",
+            message="broke on <script> & more",
+            file="broken.sql",
+            line=7,
+        )
+    )
+    return result
+
+
 def test_json_contract_keys():
     payload = to_json(_result(), version="0.1.0", standards=STANDARDS)
     assert payload["tool"] == "coop-sql-review"
@@ -112,6 +130,57 @@ def test_html_has_findings_by_rule_section():
     assert "1 finding(s)" in html
     clean = to_html(Result(files_checked=1), version="0.1.0", standards=STANDARDS)
     assert "Findings by rule" not in clean
+
+
+def test_markdown_renders_diagnostics_section_and_summary():
+    from coop_sql_review.report import to_markdown
+
+    md = to_markdown(_result_with_diagnostics(), version="0.1.0", standards=STANDARDS)
+    assert "## Diagnostics (processing problems)" in md
+    assert "- diagnostics: 1 error, 0 warning" in md
+    assert "broken.sql:7" in md
+    # absent when there are no diagnostics
+    assert "## Diagnostics (processing problems)" not in to_markdown(
+        _result(), version="0.1.0", standards=STANDARDS
+    )
+
+
+def test_html_renders_diagnostics_card_and_escapes_message():
+    html = to_html(_result_with_diagnostics(), version="0.1.0", standards=STANDARDS)
+    assert "<h2>Diagnostics (processing problems)</h2>" in html
+    assert "broken.sql:7" in html
+    # dynamic diagnostic text is HTML-escaped in the card (documented invariant)
+    assert "broke on &lt;script&gt; &amp; more" in html
+    assert "<script>" not in html
+    # absent when there are no diagnostics
+    assert "Diagnostics (processing problems)" not in to_html(_result(), version="0.1.0", standards=STANDARDS)
+
+
+def _result_at_triage_threshold() -> Result:
+    from coop_sql_review.report import _TRIAGE_HINT_THRESHOLD
+
+    findings = [
+        Finding("SQL-NOISY", "warning", f"f{i}.sql", i + 1, "", "m", "§1")
+        for i in range(_TRIAGE_HINT_THRESHOLD)
+    ]
+    return Result(findings=sorted(findings, key=lambda f: (f.file, f.line)), files_checked=1)
+
+
+def test_markdown_triage_hint_at_threshold():
+    from coop_sql_review.report import _TRIAGE_HINT, to_markdown
+
+    md = to_markdown(_result_at_triage_threshold(), version="0.1.0", standards=STANDARDS)
+    assert _TRIAGE_HINT in md
+    # below threshold (max count 1) the hint is absent
+    assert _TRIAGE_HINT not in to_markdown(_result(), version="0.1.0", standards=STANDARDS)
+
+
+def test_html_triage_hint_at_threshold():
+    from coop_sql_review.report import _TRIAGE_HINT
+
+    html = to_html(_result_at_triage_threshold(), version="0.1.0", standards=STANDARDS)
+    assert _TRIAGE_HINT in html
+    assert _TRIAGE_HINT not in to_html(_result(), version="0.1.0", standards=STANDARDS)
 
 
 def test_console_lists_agent_review_items():
