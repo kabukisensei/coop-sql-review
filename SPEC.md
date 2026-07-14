@@ -42,8 +42,11 @@ See `RULES.md` for the full taxonomy (deterministic vs agent-judgment, with tier
 ## CLI
 ```
 coop-sql-review check [PATHS...] --standards <path> [--config <path>]
-                      [--format text|json|markdown|html] [-o/--output <path>] [--open/--no-open]
+                      [--format text|json|markdown|html|sarif] [-o/--output <path>] [--open/--no-open]
+                      [--html <path>] [--md/--markdown <path>] [--sarif <path>]
+                      [--target fabric-dw|azure-sql]
                       [--color/--no-color] [--min-severity info|warning|error] [--dialect tsql]
+                      [--baseline <path>] [--write-baseline <path>] [--save-ignores]
                       [--log-file <path>] [--strict]
 coop-sql-review rules [--format text|json]   # list rules, enabled state, and which require the agent
 coop-sql-review upgrade                # prints the command to update; never self-applies (alias: update)
@@ -66,7 +69,7 @@ coop-sql-review --version
 `--format json` emits (stable keys, sorted, deterministic):
 ```json
 {
-  "tool": "coop-sql-review", "schema_version": 2, "version": "x.y.z",
+  "tool": "coop-sql-review", "schema_version": 4, "version": "x.y.z",
   "standards": {"path": "...", "sha256": "..."},
   "files_checked": 12,
   "verdict": {"clean": false, "highest_severity": "warning"},
@@ -87,12 +90,19 @@ coop-sql-review --version
 ```
 The agent consumes `findings` directly and reasons about `agent_review` items using the prose
 standards. Same two-audience pattern as coop-data-doc (machine + human). The `fingerprint` is the
-stable suppression key: schema v2 hashes `(rule_id, object, message/note)` only — no file path, no
-line — so baselines and `rules.yml` ignore lists survive cwd/machine changes. A diagnostic may
+stable suppression key. Under `schema_version` **4** (the current version — the family identity
+rule, shared byte-for-byte with coop-dax-review's schema_version 3) it is
+`(rule_id, object-or-file-basename, fingerprint_key-or-message/note, occurrence ordinal)`: an empty
+`object` falls back to the file **basename** (so object-less findings in different files don't
+collapse), a rule whose message embeds volatile detail sets a stable `fingerprint_key`, and the
+0-based **occurrence ordinal** discriminates N same-identity occurrences in one object (so
+baselining one `SELECT *` never silently suppresses a future one). No file path and no line number
+enter the hash, so baselines and `rules.yml` ignore lists survive cwd/machine changes and unrelated
+line shifts. (See AGENTS.md, "family identity rule", for the authoritative wording; report.py is the
+implementation — `report.SCHEMA_VERSION`.) A diagnostic may
 carry severity **`error`** — notably the `syntax_error` category (genuinely invalid T-SQL a real
 parser rejects) — which sets `verdict.clean=false` and `verdict.highest_severity="error"` even with
-zero findings, so a file the parser rejected is never read as a clean pass. `schema_version` stays
-**2**: the category and error-severity diagnostics are additive, not a shape change. The `rules.yml`
+zero findings, so a file the parser rejected is never read as a clean pass. The `rules.yml`
 `syntax_errors: error|warning|off` knob and an inline `coop-sql-review:ignore syntax` directive
 adjust or suppress syntax diagnostics (a demoted one still appears; only `off` removes it).
 
