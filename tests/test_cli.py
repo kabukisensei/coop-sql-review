@@ -692,6 +692,71 @@ def test_write_baseline_to_missing_dir_is_friendly_error(tmp_path):
     assert "Traceback" not in result.output
 
 
+# --- documented friendly I/O-failure paths (issue #28) ---
+
+
+def test_unreadable_file_is_a_diagnostic_not_a_crash(tmp_path, monkeypatch):
+    # An unreadable .sql file becomes a `file_unreadable` error diagnostic; the
+    # other file is still checked, the run stays exit 0, and --strict trips on the
+    # remaining error diagnostic. Path-selective read_bytes monkeypatch keeps this
+    # cross-platform (the Windows CI leg can't chmod-000).
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "a.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (sub / "b.sql").write_text("SELECT * FROM t;\n", encoding="utf-8")
+
+    real_read_bytes = Path.read_bytes
+
+    def selective_read_bytes(self):
+        if self.name == "a.sql":
+            raise OSError(13, "Permission denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", selective_read_bytes)
+
+    result = CliRunner().invoke(cli, ["check", str(sub), "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    unreadable = [d for d in payload["diagnostics"] if d["category"] == "file_unreadable"]
+    assert len(unreadable) == 1
+    assert unreadable[0]["severity"] == "error"
+    assert unreadable[0]["file"].endswith("a.sql")
+    assert payload["files_checked"] == 1  # b.sql was still checked
+
+    strict = CliRunner().invoke(cli, ["check", str(sub), "--strict"])
+    assert strict.exit_code == 2  # the remaining error diagnostic trips --strict
+
+
+def test_output_write_failure_is_friendly_error(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    target = tmp_path / "missing-dir" / "report.txt"
+    result = CliRunner().invoke(cli, ["check", str(f), "-o", str(target)])
+    assert result.exit_code == 1
+    assert "could not write report to" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_html_output_write_failure_is_friendly_error(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    target = tmp_path / "missing-dir" / "report.html"
+    result = CliRunner().invoke(cli, ["check", str(f), "--format", "html", "-o", str(target)])
+    assert result.exit_code == 1
+    assert "could not write report to" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_log_file_write_failure_is_friendly_error(tmp_path):
+    f = tmp_path / "q.sql"
+    f.write_text("SELECT * FROM t;\n", encoding="utf-8")
+    target = tmp_path / "missing-dir" / "run.log"
+    result = CliRunner().invoke(cli, ["check", str(f), "--log-file", str(target)])
+    assert result.exit_code == 1
+    assert "could not write log file" in result.output
+    assert "Traceback" not in result.output
+
+
 # --- zero .sql files: the machine contract still renders; --strict fails ---
 
 
