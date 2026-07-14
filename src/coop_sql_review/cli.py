@@ -436,7 +436,7 @@ def _save_ignores_interactive(findings, config_path: str | None, cfg_path: Path)
 @click.version_option(version=__version__, prog_name="coop-sql-review")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
-    """Offline, advisory SQL standards linter for Microsoft Fabric DW.
+    """Offline, advisory SQL standards linter for Microsoft Fabric DW and Azure serverless SQL.
 
     Reports deviations from the SQL standards; never edits or blocks.
     Processing problems (parse failures, rule errors) are reported as
