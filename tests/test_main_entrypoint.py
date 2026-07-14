@@ -10,6 +10,7 @@ stderr, pinning the contract the module docstring and AGENTS.md promise. See
 issue #27.
 """
 
+import os
 import subprocess
 import sys
 
@@ -91,7 +92,10 @@ def test_module_entrypoint_version_smoke():
         [sys.executable, "-m", "coop_sql_review", "--version"],
         capture_output=True,
         text=True,
-        env={"PYTHONPATH": "src", "PATH": ""},
+        # Inherit the real environment (Windows needs SystemRoot/PATH to init the
+        # hash-randomization RNG, else the child dies with "failed to get random
+        # numbers"); PYTHONPATH=src still shadows any installed copy in the venv.
+        env={**os.environ, "PYTHONPATH": "src"},
         cwd=".",
     )
     assert proc.returncode == 0
