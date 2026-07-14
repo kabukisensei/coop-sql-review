@@ -377,7 +377,14 @@ def _record_parse_diagnostics(parsed: ParsedFile, batch: Batch) -> None:
                 message=f"syntax error: {issue.message} (col {issue.col})",
             )
         )
-    if batch.sql.strip() and not batch.expressions:
+    # Test the CODE content, not the raw text: a batch holding only comments,
+    # semicolons, or whitespace (an SSMS `/****** Object ... ******/` header, a
+    # `-- footer` after the final GO, a `-----` / `-- Section 2` separator, a
+    # `;`-only batch) parses to zero expressions but has no coverage to lose, so
+    # it must NOT emit PARSE_FAILED (issue #22). mask_noncode blanks comment and
+    # string content while preserving offsets; stripping `;` and whitespace then
+    # leaves the empty string exactly when the batch is code-free.
+    if mask_noncode(batch.sql).strip("; \t\r\n") and not batch.expressions:
         parsed.diagnostics.append(
             Diagnostic(
                 severity="warning",

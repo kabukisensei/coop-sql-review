@@ -25,6 +25,33 @@ def test_unparseable_batch_is_reported_as_parse_failed():
     assert any(o.name == "ok" for o in parsed.objects)
 
 
+# issue #22: a GO batch holding only comments/semicolons/whitespace parses to
+# zero expressions but has no coverage to lose, so it must NOT emit a spurious
+# PARSE_FAILED. These are extremely common, perfectly valid file layouts.
+def test_comment_footer_after_final_go_is_not_parse_failed():
+    parsed = parse_sql("x.sql", "CREATE TABLE ok (a int);\nGO\n-- end of deployment script\n")
+    assert PARSE_FAILED not in {d.category for d in parsed.diagnostics}
+    assert any(o.name == "ok" for o in parsed.objects)
+
+
+def test_ssms_object_header_only_batch_is_not_parse_failed():
+    sql = "/****** Object:  Table [dbo].[ok]    Script Date: 1/1/2026 ******/\nGO\nCREATE TABLE ok (a int);\n"
+    parsed = parse_sql("x.sql", sql)
+    assert PARSE_FAILED not in {d.category for d in parsed.diagnostics}
+    assert any(o.name == "ok" for o in parsed.objects)
+
+
+def test_separator_comment_block_between_gos_is_not_parse_failed():
+    sql = "CREATE TABLE a (x int);\nGO\n-----\n-- Section 2\n-----\nGO\nCREATE TABLE b (y int);\n"
+    parsed = parse_sql("x.sql", sql)
+    assert PARSE_FAILED not in {d.category for d in parsed.diagnostics}
+
+
+def test_semicolon_only_batch_is_not_parse_failed():
+    parsed = parse_sql("x.sql", "CREATE TABLE ok (a int);\nGO\n;\nGO\nCREATE TABLE two (b int);\n")
+    assert PARSE_FAILED not in {d.category for d in parsed.diagnostics}
+
+
 def test_diagnostics_appear_in_json_and_console(tmp_path):
     bad = tmp_path / "bad.sql"
     bad.write_text("ALTER TABLE gold.t ALTER COLUMN c int NOT NULL;\n", encoding="utf-8")
