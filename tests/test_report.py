@@ -108,6 +108,18 @@ def test_console_by_rule_sorted_by_count_desc_and_hint_at_threshold():
     assert text.isascii()  # the new table + hint chrome stays ASCII (Windows consoles)
 
 
+def test_rule_counts_keeps_highest_severity_per_rule():
+    # issue #25: rule_counts documents "the severity shown is the highest seen".
+    # severity_rank orders error<warning<info, so a rule that emits both an error
+    # and an info must be labelled [error] regardless of insertion order.
+    from coop_sql_review.report import rule_counts
+
+    for order in (("error", "info"), ("info", "error")):
+        findings = [Finding("SQL-X", sev, "a.sql", i + 1, "o", "m", "§1") for i, sev in enumerate(order)]
+        result = Result(findings=sorted(findings, key=lambda f: (f.file, f.line)), files_checked=1)
+        assert rule_counts(result) == [("SQL-X", "error", 2)]
+
+
 def test_console_no_hint_below_threshold_and_no_table_when_clean():
     assert "Tip: a noisy rule" not in "\n".join(console_lines(_result()))  # max count 1
     assert "Findings by rule" not in "\n".join(console_lines(Result(files_checked=1)))

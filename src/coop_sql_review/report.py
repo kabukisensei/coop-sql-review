@@ -62,7 +62,10 @@ def rule_counts(result: Result) -> list[tuple[str, str, int]]:
     counts: dict[str, list] = {}
     for f in result.findings:
         entry = counts.setdefault(f.rule_id, [f.severity, 0])
-        if severity_rank(f.severity) > severity_rank(entry[0]):
+        # Keep the HIGHEST severity seen for the rule. severity_rank orders
+        # error=0 < warning=1 < info=2 (lower rank = more severe, the same
+        # convention Result.filtered uses), so a smaller rank must win.
+        if severity_rank(f.severity) < severity_rank(entry[0]):
             entry[0] = f.severity
         entry[1] += 1
     return sorted(((rid, sev, n) for rid, (sev, n) in counts.items()), key=lambda t: (-t[2], t[0]))
