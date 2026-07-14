@@ -602,9 +602,10 @@ def check(
       coop-sql-review-report.html in the current folder — then opens it in
       your browser (see --open/--no-open).
       To ALSO save shareable files in ONE run -- on top of whatever prints --
-      add either or both (they compose with each other and with --format):
+      add any of these (they compose with each other and with --format):
         --html FILE   a self-contained, branded HTML report
         --md FILE     a Markdown report
+        --sarif FILE  a SARIF report for GitHub/ADO PR annotations
     \b
         coop-sql-review check ./sql --html report.html --md report.md
 

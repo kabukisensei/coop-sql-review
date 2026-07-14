@@ -53,7 +53,7 @@ pipx install coop-sql-review
 ```
 coop-sql-review --version
 ```
-You should see a version number like `coop-sql-review, version 0.2.0`.
+You should see a version number like `coop-sql-review, version 0.10.0`.
 
 > Want the very latest unreleased build instead of the PyPI release? Install straight from the
 > repository:
@@ -200,7 +200,7 @@ without failing the build — add `--strict` if you want the build to go red on 
 | Command | What it does |
 |---|---|
 | `coop-sql-review check [paths...]` | Check files/folders against the standards (the main command). |
-| `coop-sql-review rules` | List every rule it checks, with severity and tier. Add `--format json` for a machine-readable inventory (id, title, severity, category, standard_ref, tier, kind, default_enabled). |
+| `coop-sql-review rules` | List every rule it checks, with severity and tier. Add `--format json` for a machine-readable inventory (id, title, severity, category, standard_ref, tier, kind, default_enabled, targets). |
 | `coop-sql-review help` | Show help. `help check` shows help for one command. |
 | `coop-sql-review update` | Check for a newer version and print the command to upgrade (same as `upgrade`). |
 | `coop-sql-review upgrade` | Check for a newer version and print the command to upgrade. |
@@ -213,7 +213,8 @@ without failing the build — add `--strict` if you want the build to go red on 
 | `-o`, `--output <file>` | Write the report to a file instead of the screen (best for big runs). |
 | `--html <file>` | *Also* write a self-contained HTML report to this file (composes with `--format`; it's an extra copy, and never opens a browser). |
 | `--md <file>` | *Also* write a Markdown report to this file (composes with `--format`; an extra copy). |
-| `--format text\|json\|markdown\|html` | `text` (default) for the screen, `html` for a clean browser report (always written to a file — `coop-sql-review-report.html` in the current folder unless you give `-o`), `markdown` for a readable file, `json` for tools/the agent. |
+| `--sarif <file>` | *Also* write a SARIF report to this file (composes with `--format`; an extra copy). SARIF is the format GitHub and Azure DevOps read to annotate a pull request with the findings. |
+| `--format text\|json\|markdown\|html\|sarif` | `text` (default) for the screen, `html` for a clean browser report (always written to a file — `coop-sql-review-report.html` in the current folder unless you give `-o`), `markdown` for a readable file, `json` for tools/the agent, `sarif` for GitHub/ADO PR annotations. |
 | `--open` / `--no-open` | Whether to open an HTML report in your browser when it's written. Default: opens automatically when you're in a terminal; `--no-open` to skip. |
 | `--color` / `--no-color` | Force colored or plain text output. Default: auto — colored at a terminal, plain when piped or redirected (also honors `NO_COLOR`). |
 | `--min-severity error\|warning\|info` | Hide findings below this level. Default `info` (show all). |
@@ -225,6 +226,7 @@ without failing the build — add `--strict` if you want the build to go red on 
 | `--log-file <file>` | Also write the diagnostics (parse problems, errors) to a file. |
 | `--strict` | Exit with an error code if any finding **at or above `--min-severity`** remains — for CI gates (see §6). Also fails on a **real syntax error** (or any other error-level diagnostic, e.g. an unreadable file) and when **no `.sql` files were checked at all**, so a typo'd path or a broken file can't pass silently. |
 | `--dialect <name>` | SQL dialect to parse (default `tsql`, which fits Fabric). |
+| `--target fabric-dw\|azure-sql` | Which SQL target to check for (default `fabric-dw`). `azure-sql` skips the Fabric-DW-only rules (the types and features Azure serverless SQL supports but Fabric DW doesn't). Overrides a `target:` key in `rules.yml` (see §7). |
 
 Run `coop-sql-review rules` any time to see the current full list of checks.
 
