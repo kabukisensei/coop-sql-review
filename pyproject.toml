@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "coop-sql-review"
 dynamic = ["version"]   # single-sourced from src/coop_sql_review/__init__.py (see [tool.hatch.version])
-description = "Offline, advisory SQL standards linter for Microsoft Fabric Data Warehouse: parses .sql files and reports anything that doesn't match the team's SQL standards. Human report + machine JSON for the company agent. Never edits or blocks."
+description = "Offline, advisory T-SQL standards linter for Microsoft Fabric Data Warehouse and Azure serverless SQL (--target): parses .sql files and reports anything that doesn't match the team's SQL standards. Human report + machine JSON for the company agent. Never edits or blocks."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Aaron Jennings" }]
-keywords = ["sql", "linter", "fabric", "data-warehouse", "tsql", "standards"]
+keywords = ["sql", "linter", "fabric", "data-warehouse", "tsql", "standards", "azure", "azure-sql", "serverless"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

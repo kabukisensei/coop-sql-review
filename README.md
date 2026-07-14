@@ -1,7 +1,8 @@
 # coop-sql-review
 
 A friendly tool that **reads your `.sql` files and points out anything that doesn't follow our
-SQL standards** for the Fabric data warehouse. It is **advisory only** — it never changes,
+SQL standards** for the Fabric data warehouse (and Azure serverless SQL — pick the target with
+`--target`, see section 4). It is **advisory only** — it never changes,
 rejects, or deletes anything. It just prints a report so you can fix things before committing.
 
 It works completely **offline** (your SQL never leaves your machine) and runs the same on
