@@ -54,6 +54,20 @@ def test_column_nullability_matches_declaration():
     assert "PK" in cols["d"].constraints
 
 
+def test_identity_tag_covers_both_spellings():
+    # sqlglot parses seeded `IDENTITY(1,1)` as GeneratedAsIdentity but bare
+    # `IDENTITY` (no seed) as AutoIncrement; the parser must tag both so the two
+    # spellings can never silently diverge in ColumnDef.constraints (issue #31).
+    sql = (
+        "CREATE TABLE s.t (bare BIGINT IDENTITY NOT NULL, seeded BIGINT IDENTITY(1,1) NOT NULL, plain INT)\n"
+    )
+    parsed = parse_sql("identity.sql", sql)
+    cols = {c.name: c for c in parsed.objects[0].columns}
+    assert "IDENTITY" in cols["bare"].constraints
+    assert "IDENTITY" in cols["seeded"].constraints
+    assert "IDENTITY" not in cols["plain"].constraints
+
+
 def test_node_line_offsets_into_second_batch():
     parsed = parse_sql("dim.sql", SQL)
     from sqlglot import exp

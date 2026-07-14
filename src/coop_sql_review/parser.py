@@ -127,7 +127,16 @@ def _columns_from_schema(
             elif isinstance(kind_expr, exp.PrimaryKeyColumnConstraint):
                 constraints.append("PK")
                 nullable = False
-            elif isinstance(kind_expr, exp.GeneratedAsIdentityColumnConstraint):
+            elif isinstance(
+                kind_expr,
+                (
+                    exp.GeneratedAsIdentityColumnConstraint,
+                    # sqlglot parses seeded `IDENTITY(1,1)` as GeneratedAsIdentity
+                    # but the bare `IDENTITY` (no seed) as AutoIncrement — tag both
+                    # the same so the two spellings never diverge (issue #31).
+                    exp.AutoIncrementColumnConstraint,
+                ),
+            ):
                 constraints.append("IDENTITY")
         columns.append(
             ColumnDef(
