@@ -336,6 +336,48 @@ def test_upgrade_shows_command_without_applying(monkeypatch):
     assert "This tool does not update itself. To update, exit coop-sql-review and run:" in result.output
 
 
+def test_update_alias_shows_command_without_applying(monkeypatch):
+    # `update` is a wired alias for `upgrade` — same body, same output. Pin it
+    # so a decorator/wiring change can't silently break the alias (issue #30).
+    from coop_sql_review import upgrade as upmod
+
+    plan = upmod.UpgradePlan(
+        package_name="coop-sql-review",
+        install_method="pipx",
+        checkout=None,
+        tool_installed="0.1.0",
+        tool_note="latest release is 0.2.0",
+    )
+    monkeypatch.setattr(upmod, "build_plan", lambda *a, **k: plan)
+    result = CliRunner().invoke(cli, ["update"])
+    assert result.exit_code == 0
+    assert "pipx upgrade coop-sql-review" in result.output
+    assert "This tool does not update itself. To update, exit coop-sql-review and run:" in result.output
+
+
+def test_help_lists_commands():
+    result = CliRunner().invoke(cli, ["help"])
+    assert result.exit_code == 0
+    assert "Usage" in result.output
+    # the top-level command list is shown
+    for name in ("check", "rules", "upgrade", "help"):
+        assert name in result.output
+
+
+def test_help_command_shows_that_commands_options():
+    result = CliRunner().invoke(cli, ["help", "check"])
+    assert result.exit_code == 0
+    assert "--strict" in result.output  # a check-specific option
+
+
+def test_help_unknown_command_is_a_usage_error():
+    # The friendly-error contract: exit 2, one-line message, no traceback.
+    result = CliRunner().invoke(cli, ["help", "bogus"])
+    assert result.exit_code == 2
+    assert "unknown command 'bogus'" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_markdown_format(tmp_path):
     f = tmp_path / "t.sql"
     f.write_text("SELECT * FROM x;\n", encoding="utf-8")
