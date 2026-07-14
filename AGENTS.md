@@ -223,7 +223,7 @@ installed core has broken test collection before):
 ```
 
 Release order is core-first: publish `coop-review-core`, then this tool (`pyproject.toml` pins
-`coop-review-core>=0.4,<0.5` — capped; raise the cap alongside each new core minor).
+`coop-review-core>=0.5,<0.6` — capped; raise the cap alongside each new core minor).
 
 ## sqlglot version pin
 
@@ -303,7 +303,7 @@ trusted publishing, and creates the GitHub Release. Human steps in `PUBLISHING.m
 
 **Shared core:** the tool-agnostic infrastructure lives in the published
 [`coop-review-core`](https://github.com/kabukisensei/coop-review-core) package (runtime dep,
-pinned `>=0.4,<0.5` — capped per core's pin policy; bump the cap with each core release). The
+pinned `>=0.5,<0.6` — capped per core's pin policy; bump the cap with each core release). The
 local `progress.py`, `diagnostics.py`, `suppressions.py`, `upgrade.py`, and `standards.py` are
 **thin shims** re-exporting / forwarding to core (baking in this tool's name); `finding.py` sources
 `SEVERITIES`/`severity_rank`/`at_or_above`/`fingerprint` from `coop_review_core.severity` but keeps

@@ -6,13 +6,31 @@ The JSON output is a machine contract (`schema_version`); breaking changes to it
 field and are called out here.
 
 ## [Unreleased]
+
+## [0.11.0] - 2026-07-14
+### Changed
+- Adopt **coop-review-core 0.5.0**: the pin is raised to `coop-review-core>=0.5,<0.6`. Core 0.5.0
+  removed the long-dead `apply_plan` upgrade path (see Removed) and made `add_ignores` raise a
+  friendly `StandardsError` on an unreadable / unwritable / invalid ignore target.
+
+### Fixed
+- `report.rule_counts` now keeps the **highest** severity seen per rule, not the lowest — an
+  inverted comparison meant a rule that fired at both `error` and `info` was summarized as `info`
+  (issue #25).
+- No more false `parse_failed` diagnostic for comment-only, SSMS-header, separator-only, or
+  semicolon-only `GO` batches: the batch is de-commented before the "could not parse this SQL
+  batch" guard, so only genuinely unparseable SQL is flagged (issue #22).
+- `--save-ignores` surfaces core 0.5.0's friendly one-line error when the ignore target can't be
+  read or written, instead of leaking a raw traceback — the handler now catches `StandardsError`
+  alongside the existing `OSError` / `ValueError`.
+
 ### Removed
 - **The dead `apply_plan` re-export is gone from `coop_sql_review.upgrade`.** `upgrade.py` is a
   thin shim over core; core removed `apply_plan` (coop-review-core#5), so the module-load
   re-import would have crashed against core 0.5.0. The `upgrade`/`update` commands have never
   self-applied — `upgrade_command` prints the command(s) to run and the user runs them in a fresh
   terminal — so nothing user-facing changes; the shim just no longer forwards a symbol core no
-  longer ships. (Folds into the next release's core-0.5.0 adoption entry when that release is cut.)
+  longer ships.
 
 ## [0.10.0] — 2026-07-09
 ### Added

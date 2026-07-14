@@ -423,7 +423,10 @@ def _save_ignores_interactive(findings, config_path: str | None, cfg_path: Path)
     target = _config_write_path(config_path, cfg_path)
     try:
         added = add_ignores(target, [_finding_ignore_entry(f) for f in selected])
-    except (OSError, ValueError) as exc:
+    except (StandardsError, OSError, ValueError) as exc:
+        # core 0.5.0's add_ignores raises StandardsError (a CoopReviewError, not an
+        # OSError/ValueError) for an unreadable/unwritable/invalid target; keep OSError
+        # + ValueError too as belt-and-braces so this exits 1 with one line, never a traceback.
         raise click.ClickException(f"could not update the ignore list in {target}: {exc}") from exc
     click.echo(
         f"Added {added} finding(s) to the ignore list in {target.resolve().as_posix()}; "
