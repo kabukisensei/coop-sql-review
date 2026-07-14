@@ -449,6 +449,31 @@ def test_html_and_md_extra_reports_compose_with_text(tmp_path):
     assert "SQL-NO-SELECT-STAR" in result.output
 
 
+def test_sarif_extra_report_composes_with_text(tmp_path):
+    # --sarif is an EXTRA sink like --html/--md: the text report still prints,
+    # AND a valid SARIF 2.1.0 file is written carrying the fixture's finding.
+    # (issue #26: the flag wiring itself had no test — to_sarif and --format sarif
+    # were covered, but the flag -> to_sarif -> write dispatch was not.)
+    sarif = tmp_path / "r.sarif"
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--sarif", str(sarif)])
+    assert result.exit_code == 0
+    payload = json.loads(sarif.read_text(encoding="utf-8"))
+    assert payload["version"] == "2.1.0"
+    rule_ids = [r["ruleId"] for r in payload["runs"][0]["results"]]
+    assert "SQL-NO-SELECT-STAR" in rule_ids
+    # the write announces its path on stderr and the text report still prints
+    assert "SARIF report written to" in result.output
+    assert "SQL-NO-SELECT-STAR" in result.output
+
+
+def test_sarif_extra_report_unwritable_is_friendly_error(tmp_path):
+    # An unwritable --sarif sink is a one-line ClickException (exit 1), pinning
+    # _write_extra_report's error contract for this sink too.
+    result = CliRunner().invoke(cli, ["check", FIXTURE, "--sarif", "/nonexistent-dir/x.sarif"])
+    assert result.exit_code == 1
+    assert "could not write report" in result.output
+
+
 def test_config_ignore_suppresses_finding(tmp_path):
     payload = json.loads(CliRunner().invoke(cli, ["check", FIXTURE, "--format", "json"]).output)
     fp = payload["findings"][0]["fingerprint"]
