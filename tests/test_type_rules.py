@@ -241,6 +241,31 @@ def test_ctas_set_operation_body_uses_left_branch():
     assert findings[0].object == "silver.t"
 
 
+def test_ctas_parenthesized_body_is_unwrapped():
+    # A CTAS whose SELECT is wrapped in parentheses (a common real-estate
+    # spelling) must still expose its cast projections — parser._ctas_projections
+    # unwraps the Subquery. Guards that unwrap branch (issue #32).
+    sql = "CREATE TABLE silver.t AS (SELECT CAST(a AS money) AS Amount FROM s.x);"
+    findings = run(MONEY_RULE, sql)
+    assert len(findings) == 1
+    assert findings[0].object == "silver.t"
+    assert "Amount" in findings[0].message
+
+
+def test_ctas_parenthesized_union_body_composes_both_unwraps():
+    # A parenthesized set operation exercises both unwraps (Subquery then
+    # SetOperation-left-branch) composing — one output column, one finding.
+    sql = (
+        "CREATE TABLE silver.t AS (\n"
+        "SELECT CAST(a AS money) AS Amount FROM s.x\n"
+        "UNION ALL\n"
+        "SELECT CAST(b AS money) AS Amount FROM s.y);\n"
+    )
+    findings = run(MONEY_RULE, sql)
+    assert len(findings) == 1
+    assert findings[0].object == "silver.t"
+
+
 def test_ctas_inside_proc_body_is_seen():
     sql = (
         "CREATE OR ALTER PROCEDURE silver.p AS\n"
