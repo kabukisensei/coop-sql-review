@@ -5,6 +5,15 @@ All notable changes to **coop-sql-review** are documented here. The format follo
 The JSON output is a machine contract (`schema_version`); breaking changes to its shape bump that
 field and are called out here.
 
+## [Unreleased]
+### Removed
+- **The dead `apply_plan` re-export is gone from `coop_sql_review.upgrade`.** `upgrade.py` is a
+  thin shim over core; core removed `apply_plan` (coop-review-core#5), so the module-load
+  re-import would have crashed against core 0.5.0. The `upgrade`/`update` commands have never
+  self-applied — `upgrade_command` prints the command(s) to run and the user runs them in a fresh
+  terminal — so nothing user-facing changes; the shim just no longer forwards a symbol core no
+  longer ships. (Folds into the next release's core-0.5.0 adoption entry when that release is cut.)
+
 ## [0.10.0] — 2026-07-09
 ### Added
 - **The §9 type rules now see CTAS projections** (issue #20). `CREATE TABLE ... AS SELECT
