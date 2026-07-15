@@ -42,7 +42,9 @@ User-facing usage docs live in `README.md` (written for readers with little term
 `--format`, never open a browser; core's `cliutils.write_extra_report`), `--open/--no-open`, `--color/--no-color`,
 `--min-severity`, `--baseline`, `--write-baseline`, `--save-ignores` (interactive; see below),
 `--dialect`, `--target fabric-dw|azure-sql`, `--log-file`, `--strict` (opt-in CI gate →
-exit 2). A stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
+exit 2), `--diff-against <prev.json>` (print a run-to-run new/fixed/persisting delta to
+stderr vs a previous `--format json` report — advisory, via core's `delta` engine). A
+stderr-only, TTY-gated progress bar (`progress.py`) shows during the parse phase.
 
 **SQL target (`--target`).** The linter runs against BOTH Microsoft Fabric Data Warehouse and
 Azure (serverless) SQL. Some §9 rules enforce a Fabric-DW-only limitation (types Fabric DW
@@ -223,7 +225,7 @@ installed core has broken test collection before):
 ```
 
 Release order is core-first: publish `coop-review-core`, then this tool (`pyproject.toml` pins
-`coop-review-core>=0.5,<0.6` — capped; raise the cap alongside each new core minor).
+`coop-review-core>=0.6,<0.7` — capped; raise the cap alongside each new core minor).
 
 ## sqlglot version pin
 

@@ -7,6 +7,21 @@ field and are called out here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-14
+### Added
+- **`check --diff-against FILE`** — compare this run against a previous run's saved
+  `--format json` envelope and print a **new / fixed / persisting** delta to stderr
+  ("12 new, 5 fixed, 210 unchanged", with the new and fixed findings listed and a
+  per-severity summary delta). Built on core 0.6.0's shared `delta` engine, keyed on
+  each finding's line-independent fingerprint, so a finding that only moved is unchanged.
+  Advisory — it never changes the exit code, and it prints to stderr so `--format json`
+  stdout stays a clean machine contract. A missing / non-JSON / wrong-tool file is a
+  friendly usage error (exit 2), mirroring `--baseline`.
+
+### Changed
+- Adopt **coop-review-core 0.6.0** (pin raised to `>=0.6,<0.7`) for the shared `delta`
+  engine behind `--diff-against`.
+
 ## [0.11.0] - 2026-07-14
 ### Changed
 - Adopt **coop-review-core 0.5.0**: the pin is raised to `coop-review-core>=0.5,<0.6`. Core 0.5.0
