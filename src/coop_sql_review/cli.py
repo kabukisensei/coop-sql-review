@@ -590,6 +590,14 @@ def cli(ctx: click.Context) -> None:
     "report): print a new / fixed / persisting delta to stderr. Advisory - never changes the "
     "exit code.",
 )
+@click.option(
+    "--changed",
+    "changed_ref",
+    is_flag=False,
+    flag_value="HEAD",
+    default=None,
+    help="Only check files changed since this git ref (e.g. HEAD, origin/main).",
+)
 @click.pass_context
 def check(
     ctx: click.Context,
@@ -612,6 +620,7 @@ def check(
     log_file: str | None,
     strict: bool,
     diff_against: str | None,
+    changed_ref: str | None,
 ) -> None:
     """Check SQL files (or directories) against the standards.
 
@@ -688,7 +697,18 @@ def check(
         click.echo(f"path not found: {p}", err=True)
 
     files = discover_sql_files(paths)
-    if not files and not missing:
+    if changed_ref is not None:
+        try:
+            from coop_review_core.gitscope import get_changed_files
+            changed_paths = get_changed_files(".sql", ref=changed_ref)
+            changed_abs = {Path(p).resolve() for p in changed_paths}
+            if paths:
+                files = [f for f in files if f.resolve() in changed_abs]
+            else:
+                files = [Path(p) for p in changed_paths]
+        except Exception as exc:
+            raise click.UsageError(str(exc)) from exc
+    if not files and not missing and changed_ref is None:
         click.echo("No .sql files found.", err=True)
     # No early return: a zero-file scan still renders the full report in every
     # format/sink (files_checked=0 is the machine contract's own disambiguator),
@@ -706,7 +726,10 @@ def check(
         # One scan_empty diagnostic per searched root, so an agent (or a CI log
         # reader) can tell a typo'd/empty path from a genuinely clean estate.
         for root in paths or (".",):
-            problem = "path not found" if root in missing else "no .sql files found under this path"
+            if changed_ref is not None:
+                problem = "no .sql files changed since " + changed_ref
+            else:
+                problem = "path not found" if root in missing else "no .sql files found under this path"
             result.diagnostics.append(
                 Diagnostic(
                     severity="warning",

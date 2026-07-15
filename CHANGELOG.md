@@ -6,6 +6,10 @@ The JSON output is a machine contract (`schema_version`); breaking changes to it
 field and are called out here.
 
 ## [Unreleased]
+
+## [0.13.0] - 2026-07-15
+### Added
+- `check --changed [REF]`: checks only files changed since `ref` (default: `HEAD`) in git-tracked roots (issue #36)
 ### Added
 - **`explain <RULE-ID>`** — print a rule's rationale (its module docstring), the cited
   standards section excerpt (numeric `§N` sliced from `docs/standards.md`; the `§A`–`§F`
