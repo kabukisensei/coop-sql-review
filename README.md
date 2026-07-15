@@ -424,3 +424,18 @@ construct isn't re-raised on every run:
 
 This tool reuses the proven skeleton and conventions from the company's `coop-data-doc` tool
 and shared CLI playbook.
+
+## 7. Custom Rules
+You can define custom regular-expression rules in `coop-sql-review.yml` (no fork or plugin required):
+
+```yaml
+custom_rules:
+  - id: CUSTOM-NO-DBO
+    pattern: 'dbo\.'
+    message: "Do not use the dbo schema."
+    severity: error
+    standard_ref: "Client Standard §3.1"
+    flags:
+      - ignorecase
+```
+These act exactly like built-in rules: they are visible in `--format json`, can be baselined, and are displayed by `coop-sql-review rules`.

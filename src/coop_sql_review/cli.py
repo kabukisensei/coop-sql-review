@@ -676,8 +676,10 @@ def check(
     for note in cfg_notes:
         click.echo(note, err=True)
     config, syntax_mode, dynamic_mode, cfg_data = _load_rule_config(cfg_path)
-    rules = apply_config(all_rules(), config)
-    unknown_rules = config.unknown_rule_ids({r.id for r in all_rules()})
+    from coop_sql_review.rules.custom import build_custom_rules
+    base_rules = all_rules() + build_custom_rules(cfg_data, cfg_path)
+    rules = apply_config(base_rules, config)
+    unknown_rules = config.unknown_rule_ids({r.id for r in base_rules})
     # SQL target: skip rules that don't apply to it (e.g. Fabric-DW-only type rules under
     # --target azure-sql). Resolved AFTER apply_config so an explicit enable/severity in
     # rules.yml is still honored for the rules that DO apply.
@@ -947,6 +949,20 @@ def compare_cmd(old_json: str, new_json: str, md_path: str | None, html_path: st
 def rules_cmd(fmt: str) -> None:
     """List every rule: id, severity, tier, and whether it needs the agent."""
     rules = all_rules()
+
+    # also include custom rules if we can discover a config
+    from coop_review_core.config import default_config_path
+    from coop_review_core.config import discover_config
+    from coop_sql_review.rules.custom import build_custom_rules
+    from pathlib import Path
+    try:
+        cfg_path = discover_config("coop-sql-review", explicit=None, env={}, start=Path.cwd(), bundled_default=default_config_path(Path(".")))
+        from coop_review_core.config import load_config_friendly
+        cfg_data = load_config_friendly(cfg_path)
+        custom = build_custom_rules(cfg_data, cfg_path)
+        rules.extend(custom)
+    except Exception:
+        pass
     if fmt == "json":
         import json
 
