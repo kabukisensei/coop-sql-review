@@ -931,6 +931,17 @@ def check(
         sys.exit(2)
 
 
+@cli.command(name="compare")
+@click.argument("old_json", type=click.Path(exists=True))
+@click.argument("new_json", type=click.Path(exists=True))
+@click.option("--md", "md_path", type=click.Path(), default=None, help="Write a Markdown report to this path.")
+@click.option("--html", "html_path", type=click.Path(), default=None, help="Write an HTML report to this path.")
+@click.option("--color/--no-color", "color_flag", default=None, help="Colorize the console output.")
+def compare_cmd(old_json: str, new_json: str, md_path: str | None, html_path: str | None, color_flag: bool | None) -> None:
+    """Compare two review JSON reports and show the delta (fixed / new / unchanged)."""
+    from coop_sql_review.comparison import run_compare
+    run_compare(old_json, new_json, md_path, html_path, color_flag)
+
 @cli.command(name="rules")
 @click.option("--format", "fmt", type=click.Choice(["text", "json"]), default="text", show_default=True)
 def rules_cmd(fmt: str) -> None:

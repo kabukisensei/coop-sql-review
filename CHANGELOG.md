@@ -8,6 +8,7 @@ field and are called out here.
 ## [Unreleased]
 
 ## [0.13.0] - 2026-07-15
+- `compare OLD.json NEW.json`: renders a run-to-run delta (fixed / new / unchanged) across HTML, Markdown, and console sinks (issue #40)
 ### Added
 - `check --changed [REF]`: checks only files changed since `ref` (default: `HEAD`) in git-tracked roots (issue #36)
 ### Added
