@@ -10,16 +10,16 @@ id for deterministic ordering.
 from __future__ import annotations
 
 import importlib
+import inspect
 import pkgutil
 
 from coop_sql_review.rules.base import Rule, RuleContext
 
-__all__ = ["Rule", "RuleContext", "all_rules"]
+__all__ = ["Rule", "RuleContext", "all_rules", "rule_docs"]
 
 
-def all_rules() -> list[Rule]:
-    """Every discovered rule, sorted by id."""
-    rules: list[Rule] = []
+def _discover():
+    """Yield ``(rule, module)`` for every ``sql_*.py`` rule module."""
     for info in pkgutil.iter_modules(__path__, prefix=f"{__name__}."):
         short = info.name.rsplit(".", 1)[1]
         if not short.startswith("sql_"):
@@ -27,6 +27,17 @@ def all_rules() -> list[Rule]:
         module = importlib.import_module(info.name)
         rule = getattr(module, "RULE", None)
         if isinstance(rule, Rule):
-            rules.append(rule)
+            yield rule, module
+
+
+def all_rules() -> list[Rule]:
+    """Every discovered rule, sorted by id."""
+    rules = [rule for rule, _ in _discover()]
     rules.sort(key=lambda r: r.id)
     return rules
+
+
+def rule_docs() -> dict[str, str]:
+    """Map each rule id to its module's docstring — the rule's rationale prose,
+    consumed by ``coop-sql-review explain``."""
+    return {rule.id: (inspect.getdoc(module) or "") for rule, module in _discover()}

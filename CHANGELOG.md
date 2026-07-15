@@ -6,6 +6,14 @@ The JSON output is a machine contract (`schema_version`); breaking changes to it
 field and are called out here.
 
 ## [Unreleased]
+### Added
+- **`explain <RULE-ID>`** — print a rule's rationale (its module docstring), the cited
+  standards section excerpt (numeric `§N` sliced from `docs/standards.md`; the `§A`–`§F`
+  proposed-additions rules note where their text lives), and its metadata (severity, tier,
+  targets, default-enabled, params). Case-insensitive, with a did-you-mean on an unknown id
+  (usage error, exit 2); `--format json` for the agent. Makes the advisory report
+  self-service — a client developer reading a finding never needs `docs/standards.md` open
+  (issue #38). New `standards.section_text` + `rules.rule_docs` helpers.
 
 ## [0.12.0] - 2026-07-14
 ### Added

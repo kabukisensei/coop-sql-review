@@ -35,8 +35,10 @@ User-facing usage docs live in `README.md` (written for readers with little term
 
 ## CLI commands
 
-`check` (the main one), `rules` (list all rules), `help [command]`, `upgrade` / `update`
-(the only networked command), `--version`. `check` options: `--standards`,
+`check` (the main one), `rules` (list all rules), `explain <RULE-ID>` (a rule's rationale +
+standards excerpt + a did-you-mean on an unknown id; `--format json` for the agent),
+`help [command]`, `upgrade` / `update` (the only networked command), `--version`. `check`
+options: `--standards`,
 `--config <rules.yml>`, `--format text|json|markdown|html|sarif`, `-o/--output <file>`,
 `--html <file>` / `--md/--markdown <file>` / `--sarif <file>` (extra report sinks — compose with
 `--format`, never open a browser; core's `cliutils.write_extra_report`), `--open/--no-open`, `--color/--no-color`,

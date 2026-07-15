@@ -12,6 +12,7 @@ ClickExceptions (exit 1). Never a traceback.
 from __future__ import annotations
 
 import codecs
+import difflib
 import json
 import logging
 import os
@@ -72,7 +73,7 @@ from coop_sql_review.report import (
     to_markdown,
     to_sarif,
 )
-from coop_sql_review.rules import all_rules
+from coop_sql_review.rules import all_rules, rule_docs
 from coop_sql_review.rules.base import TARGETS
 from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.suppressions import (
@@ -93,6 +94,7 @@ from coop_sql_review.standards import (
     load_config_friendly,
     parse_syntax_errors_knob,
     resolve_standards_path,
+    section_text,
     standards_info,
 )
 
@@ -937,6 +939,92 @@ def rules_cmd(fmt: str) -> None:
         # Flag rules that only apply under one target (e.g. Fabric-DW type limits).
         scope = "" if set(r.targets) == set(TARGETS) else f"  [{'/'.join(sorted(r.targets))} only]"
         click.echo(f"  {r.id:26} [{tag:7}] T{r.tier} {r.standard_ref:5} {r.title}{off}{scope}")
+
+
+@cli.command()
+@click.argument("rule_id")
+@click.option("--format", "fmt", type=click.Choice(["text", "json"]), default="text", show_default=True)
+@click.option(
+    "--color/--no-color",
+    "color_flag",
+    default=None,
+    help="Colorize the explanation (default: auto — only at an interactive terminal).",
+)
+@click.option(
+    "--standards",
+    "standards_path",
+    type=click.Path(),
+    default=None,
+    help="Standards file to quote the section from (default: the bundled copy).",
+)
+def explain(rule_id: str, fmt: str, color_flag: bool | None, standards_path: str | None) -> None:
+    """Explain a rule: its rationale, standards excerpt, severity, and targets.
+
+    RULE_ID is case-insensitive (e.g. SQL-TYPE-MONEY). This prints what a finding
+    only cites — so a client developer reading the report never needs
+    docs/standards.md open, and the agent can pull rule rationale for triage
+    (`--format json`). An unknown id is a usage error with a did-you-mean.
+    """
+    from coop_review_core.report import sty
+
+    by_id = {r.id: r for r in all_rules()}
+    match = by_id.get(rule_id) or by_id.get(rule_id.upper())
+    if match is None:
+        suggestions = difflib.get_close_matches(rule_id.upper(), list(by_id), n=3, cutoff=0.5)
+        hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+        raise click.UsageError(
+            f"unknown rule id '{rule_id}'. Run `coop-sql-review rules` to list them.{hint}"
+        )
+
+    doc = rule_docs().get(match.id, "").strip()
+    section = section_text(resolve_standards_path(standards_path), match.standard_ref)
+
+    if fmt == "json":
+        click.echo(
+            json.dumps(
+                {
+                    "id": match.id,
+                    "title": match.title,
+                    "severity": match.severity,
+                    "category": match.category,
+                    "standard_ref": match.standard_ref,
+                    "tier": match.tier,
+                    "kind": match.kind,
+                    "default_enabled": match.default_enabled,
+                    "targets": sorted(match.targets),
+                    "params": match.params,
+                    "rationale": doc,
+                    "standards_excerpt": section,
+                },
+                indent=2,
+                sort_keys=True,
+                ensure_ascii=True,
+            )
+        )
+        return
+
+    use_col = _use_color(color_flag, None)
+    tag = "agent-judgment" if match.kind == "agent" else f"{match.severity} (default)"
+    meta = f"severity: {tag}   tier: {match.tier}   standard: {match.standard_ref}"
+    if set(match.targets) != set(TARGETS):
+        meta += f"   targets: {'/'.join(sorted(match.targets))} only"
+    if not match.default_enabled:
+        meta += "   [off by default — enable in rules.yml]"
+
+    out = [sty(f"{match.id} - {match.title}", "bold", color=use_col), meta]
+    if match.params:
+        out.append("params: " + ", ".join(f"{k}={v!r}" for k, v in sorted(match.params.items())))
+    if doc:
+        out += ["", sty("Why", "bold", color=use_col), doc]
+    if section:
+        out += ["", sty(f"Standard {match.standard_ref}", "bold", color=use_col), section]
+    elif not match.standard_ref.lstrip("§").isdigit():
+        out += [
+            "",
+            f"(Standard {match.standard_ref} is a proposed-additions rule — see "
+            "docs/standards-proposed-additions.md in the repo; the rationale above still applies.)",
+        ]
+    click.echo("\n".join(out))
 
 
 def _run_upgrade(check_only: bool) -> None:
