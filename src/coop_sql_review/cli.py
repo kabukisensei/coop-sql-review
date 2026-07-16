@@ -598,6 +598,13 @@ def cli(ctx: click.Context) -> None:
     default=None,
     help="Only check files changed since this git ref (e.g. HEAD, origin/main).",
 )
+@click.option(
+    "--schema",
+    "schema_path",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to an external JSON schema file for cross-file type-aware rules.",
+)
 @click.pass_context
 def check(
     ctx: click.Context,
@@ -621,6 +628,7 @@ def check(
     strict: bool,
     diff_against: str | None,
     changed_ref: str | None,
+    schema_path: str | None,
 ) -> None:
     """Check SQL files (or directories) against the standards.
 
@@ -722,7 +730,11 @@ def check(
     progress.line(f"Checking {len(files)} SQL file(s)...")
     with progress.bar("Parsing", total=len(files)) as tick:
         parsed, read_diagnostics = _parse_files(files, dialect, on_file=tick)
-    result = run_rules(parsed, rules)
+        
+    from coop_sql_review.catalog_builder import build_catalog
+    catalog = build_catalog(parsed, schema_path)
+    
+    result = run_rules(parsed, rules, catalog)
     result.diagnostics.extend(read_diagnostics)
     if not files:
         # One scan_empty diagnostic per searched root, so an agent (or a CI log

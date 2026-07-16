@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from coop_sql_review.diagnostics import RULE_ERROR, Diagnostic
 from coop_sql_review.finding import AgentReviewItem, Finding, assign_occurrences, severity_rank
 from coop_sql_review.rules.base import Rule, RuleContext
-from coop_sql_review.sql_model import ParsedFile
+from coop_sql_review.sql_model import ParsedFile, EstateCatalog
 
 
 @dataclass
@@ -57,13 +57,13 @@ class Result:
         )
 
 
-def run_rules(parsed_files: list[ParsedFile], rules: list[Rule]) -> Result:
+def run_rules(parsed_files: list[ParsedFile], rules: list[Rule], catalog: EstateCatalog | None = None) -> Result:
     """Evaluate every rule against every parsed file."""
     result = Result(files_checked=len(parsed_files))
     for parsed in parsed_files:
         result.diagnostics.extend(parsed.diagnostics)  # parse failures / degradations
         for rule in rules:
-            ctx = RuleContext(rule, parsed)
+            ctx = RuleContext(rule, parsed, catalog)
             try:
                 if rule.kind == "agent":
                     if rule.detect is not None:

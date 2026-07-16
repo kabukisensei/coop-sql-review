@@ -160,3 +160,12 @@ class ParsedFile:
         for batch, node in self._nodes:
             if isinstance(node, types):
                 yield batch, node
+
+
+@dataclass
+class EstateCatalog:
+    """A cross-file catalog mapping `normalized_schema.normalized_table` to
+    `normalized_column_name` -> `ColumnDef`.
+    """
+    tables: dict[str, dict[str, ColumnDef]] = field(default_factory=dict)
+

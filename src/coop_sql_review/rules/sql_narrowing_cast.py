@@ -58,6 +58,25 @@ def _column_sizes(ctx: RuleContext) -> dict[str, tuple[str, float]]:
                 conflicts.add(key)
             else:
                 sizes[key] = info
+                
+    for table_dict in ctx.catalog.tables.values():
+        for norm_col, col in table_dict.items():
+            family = _family(col.base_type)
+            if family is None:
+                continue
+            m = re.search(r"\(\s*(MAX|\d+)", col.data_type, re.IGNORECASE)
+            if not m:
+                continue
+            tok = m.group(1).upper()
+            info = (family, _INF if tok == "MAX" else float(int(tok)))
+            
+            if col.base_type == "CONFLICT":
+                conflicts.add(norm_col)
+            elif norm_col in sizes and sizes[norm_col] != info:
+                conflicts.add(norm_col)
+            elif norm_col not in sizes:
+                sizes[norm_col] = info
+
     for key in conflicts:
         sizes.pop(key, None)
     return sizes

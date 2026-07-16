@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from coop_sql_review.finding import AgentReviewItem, Finding
-from coop_sql_review.sql_model import ParsedFile
+from coop_sql_review.sql_model import ParsedFile, EstateCatalog
 
 # SQL targets a rule can apply to. This linter runs against BOTH Microsoft Fabric Data
 # Warehouse and Azure (serverless) SQL. Fabric DW rejects several data types/features that
@@ -55,9 +55,10 @@ class RuleContext:
     """What a rule's ``check``/``detect`` receives: the parsed file plus
     factory helpers that pre-fill the rule's identity onto each result."""
 
-    def __init__(self, rule: Rule, parsed: ParsedFile) -> None:
+    def __init__(self, rule: Rule, parsed: ParsedFile, catalog: EstateCatalog | None = None) -> None:
         self.rule = rule
         self.parsed = parsed
+        self.catalog = catalog or EstateCatalog()
 
     @property
     def file(self) -> str:
