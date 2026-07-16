@@ -57,7 +57,9 @@ class Result:
         )
 
 
-def run_rules(parsed_files: list[ParsedFile], rules: list[Rule], catalog: EstateCatalog | None = None) -> Result:
+def run_rules(
+    parsed_files: list[ParsedFile], rules: list[Rule], catalog: EstateCatalog | None = None
+) -> Result:
     """Evaluate every rule against every parsed file."""
     result = Result(files_checked=len(parsed_files))
     for parsed in parsed_files:

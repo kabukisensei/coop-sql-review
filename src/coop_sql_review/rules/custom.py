@@ -7,6 +7,7 @@ from coop_sql_review.finding import Finding
 from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.rules.base import Rule
 
+
 def build_custom_rules(cfg_data: dict, cfg_path: Path) -> List[Rule]:
     """Parse 'custom_rules' from the config mapping into Rule objects."""
     custom_rules = cfg_data.get("custom_rules", [])
@@ -60,6 +61,7 @@ def build_custom_rules(cfg_data: dict, cfg_path: Path) -> List[Rule]:
                     line = ctx.parsed.line_of_offset(match.start())
                     findings.append(ctx.finding(line=line, object="", message=_msg))
                 return findings
+
             return check
 
         r = Rule(
@@ -69,7 +71,7 @@ def build_custom_rules(cfg_data: dict, cfg_path: Path) -> List[Rule]:
             severity=sev,
             standard_ref=std_ref,
             tier=1,
-            check=make_check(compiled, str(message))
+            check=make_check(compiled, str(message)),
         )
         rules.append(r)
 

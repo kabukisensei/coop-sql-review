@@ -62,7 +62,7 @@ def _column_types(ctx: RuleContext) -> dict[str, str]:
                 conflicts.add(key)
             else:
                 types[key] = column.base_type
-                
+
     for table_dict in ctx.catalog.tables.values():
         for norm_col, col_def in table_dict.items():
             if col_def.base_type == "CONFLICT":
@@ -71,7 +71,7 @@ def _column_types(ctx: RuleContext) -> dict[str, str]:
                 conflicts.add(norm_col)
             elif norm_col not in types:
                 types[norm_col] = col_def.base_type
-                
+
     for key in conflicts:
         types.pop(key, None)
     return types

@@ -6,8 +6,10 @@ from coop_review_core.report import HTML_STYLE
 from coop_review_core.cliutils import write_extra_report
 from coop_sql_review.progress import should_enable
 
+
 def render_delta_html(delta: EnvelopeDelta) -> str:
     from html import escape
+
     lines = [
         "<!DOCTYPE html>",
         "<html>",
@@ -18,11 +20,13 @@ def render_delta_html(delta: EnvelopeDelta) -> str:
         "</head>",
         "<body>",
         f"<h1>{escape(delta.tool)} Delta</h1>",
-        f"<p><strong>{delta.new_count} new</strong>, <strong>{delta.fixed_count} fixed</strong>, {delta.persisting} unchanged.</p>"
+        f"<p><strong>{delta.new_count} new</strong>, <strong>{delta.fixed_count} fixed</strong>, {delta.persisting} unchanged.</p>",
     ]
     if delta.standards_changed:
-        lines.append(f"<p><strong>Standards changed</strong> - findings may differ because rules changed.</p>")
-    
+        lines.append(
+            f"<p><strong>Standards changed</strong> - findings may differ because rules changed.</p>"
+        )
+
     def render_finding(f: dict) -> str:
         loc = f.get("model") or f.get("file") or ""
         obj = f.get("object") or ""
@@ -44,11 +48,14 @@ def render_delta_html(delta: EnvelopeDelta) -> str:
         sign = "+" if count >= 0 else ""
         lines.append(f"<li>{escape(s)}: {sign}{count}</li>")
     lines.append("</ul>")
-    
+
     lines.extend(["</body>", "</html>"])
     return "\n".join(lines) + "\n"
 
-def run_compare(old_path: str, new_path: str, md_path: str | None, html_path: str | None, color_flag: bool | None) -> None:
+
+def run_compare(
+    old_path: str, new_path: str, md_path: str | None, html_path: str | None, color_flag: bool | None
+) -> None:
     try:
         old_env = json.loads(Path(old_path).read_text(encoding="utf-8-sig"))
         new_env = json.loads(Path(new_path).read_text(encoding="utf-8-sig"))

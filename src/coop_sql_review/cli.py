@@ -685,6 +685,7 @@ def check(
         click.echo(note, err=True)
     config, syntax_mode, dynamic_mode, cfg_data = _load_rule_config(cfg_path)
     from coop_sql_review.rules.custom import build_custom_rules
+
     base_rules = all_rules() + build_custom_rules(cfg_data, cfg_path)
     rules = apply_config(base_rules, config)
     unknown_rules = config.unknown_rule_ids({r.id for r in base_rules})
@@ -710,6 +711,7 @@ def check(
     if changed_ref is not None:
         try:
             from coop_review_core.gitscope import get_changed_files
+
             changed_paths = get_changed_files(".sql", ref=changed_ref)
             changed_abs = {Path(p).resolve() for p in changed_paths}
             if paths:
@@ -730,10 +732,11 @@ def check(
     progress.line(f"Checking {len(files)} SQL file(s)...")
     with progress.bar("Parsing", total=len(files)) as tick:
         parsed, read_diagnostics = _parse_files(files, dialect, on_file=tick)
-        
+
     from coop_sql_review.catalog_builder import build_catalog
+
     catalog = build_catalog(parsed, schema_path)
-    
+
     result = run_rules(parsed, rules, catalog)
     result.diagnostics.extend(read_diagnostics)
     if not files:
@@ -948,13 +951,21 @@ def check(
 @cli.command(name="compare")
 @click.argument("old_json", type=click.Path(exists=True))
 @click.argument("new_json", type=click.Path(exists=True))
-@click.option("--md", "md_path", type=click.Path(), default=None, help="Write a Markdown report to this path.")
-@click.option("--html", "html_path", type=click.Path(), default=None, help="Write an HTML report to this path.")
+@click.option(
+    "--md", "md_path", type=click.Path(), default=None, help="Write a Markdown report to this path."
+)
+@click.option(
+    "--html", "html_path", type=click.Path(), default=None, help="Write an HTML report to this path."
+)
 @click.option("--color/--no-color", "color_flag", default=None, help="Colorize the console output.")
-def compare_cmd(old_json: str, new_json: str, md_path: str | None, html_path: str | None, color_flag: bool | None) -> None:
+def compare_cmd(
+    old_json: str, new_json: str, md_path: str | None, html_path: str | None, color_flag: bool | None
+) -> None:
     """Compare two review JSON reports and show the delta (fixed / new / unchanged)."""
     from coop_sql_review.comparison import run_compare
+
     run_compare(old_json, new_json, md_path, html_path, color_flag)
+
 
 @cli.command(name="rules")
 @click.option("--format", "fmt", type=click.Choice(["text", "json"]), default="text", show_default=True)
@@ -967,9 +978,17 @@ def rules_cmd(fmt: str) -> None:
     from coop_review_core.config import discover_config
     from coop_sql_review.rules.custom import build_custom_rules
     from pathlib import Path
+
     try:
-        cfg_path = discover_config("coop-sql-review", explicit=None, env={}, start=Path.cwd(), bundled_default=default_config_path(Path(".")))
+        cfg_path = discover_config(
+            "coop-sql-review",
+            explicit=None,
+            env={},
+            start=Path.cwd(),
+            bundled_default=default_config_path(Path(".")),
+        )
         from coop_review_core.config import load_config_friendly
+
         cfg_data = load_config_friendly(cfg_path)
         custom = build_custom_rules(cfg_data, cfg_path)
         rules.extend(custom)
