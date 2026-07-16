@@ -3,8 +3,6 @@ import click
 from pathlib import Path
 from typing import List
 
-from coop_sql_review.finding import Finding
-from coop_sql_review.sql_model import ParsedFile
 from coop_sql_review.rules.base import Rule
 
 

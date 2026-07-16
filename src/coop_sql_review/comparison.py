@@ -24,7 +24,7 @@ def render_delta_html(delta: EnvelopeDelta) -> str:
     ]
     if delta.standards_changed:
         lines.append(
-            f"<p><strong>Standards changed</strong> - findings may differ because rules changed.</p>"
+            "<p><strong>Standards changed</strong> - findings may differ because rules changed.</p>"
         )
 
     def render_finding(f: dict) -> str:

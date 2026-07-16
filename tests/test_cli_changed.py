@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 import subprocess
 import os
 from click.testing import CliRunner
