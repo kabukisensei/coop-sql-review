@@ -23,9 +23,7 @@ def render_delta_html(delta: EnvelopeDelta) -> str:
         f"<p><strong>{delta.new_count} new</strong>, <strong>{delta.fixed_count} fixed</strong>, {delta.persisting} unchanged.</p>",
     ]
     if delta.standards_changed:
-        lines.append(
-            "<p><strong>Standards changed</strong> - findings may differ because rules changed.</p>"
-        )
+        lines.append("<p><strong>Standards changed</strong> - findings may differ because rules changed.</p>")
 
     def render_finding(f: dict) -> str:
         loc = f.get("model") or f.get("file") or ""
