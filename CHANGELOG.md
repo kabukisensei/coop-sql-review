@@ -7,6 +7,34 @@ field and are called out here.
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-07-16
+
+### Fixed
+
+- Resolved ruff lint issues: removed an unnecessary f-string in `comparison.py` and unused imports in `rules/custom.py`, `tests/test_cli_changed.py`, and `tests/test_cli_compare.py`.
+
+## [0.15.1] - 2026-07-16
+
+### Fixed
+
+- Applied `ruff format` across the codebase to clean up formatting drift introduced in 0.15.0.
+
+### Removed
+
+- Leftover `tmp_debug/proc.sql` debug artifact.
+
+## [0.15.0] - 2026-07-16
+
+### Added
+
+- **Estate-wide schema catalog** (issue #37). New `catalog_builder.build_catalog()` builds a cross-file catalog of table columns from parsed `CREATE TABLE` statements and an optional external JSON schema file via `check --schema PATH`. The catalog is passed to rules through `RuleContext.catalog` and feeds `SQL-IMPLICIT-CONVERT` and `SQL-NARROWING-CAST` so they can resolve column types across files. New `EstateCatalog` dataclass in `sql_model.py`.
+
+## [0.14.0] - 2026-07-16
+
+### Changed
+
+- Adopt **coop-review-core 0.10.0** (pin raised to `coop-review-core>=0.10,<0.11`).
+
 ## [0.13.0] - 2026-07-15
 - Estate-local custom rules defined in `coop-sql-review.yml` via `custom_rules` list (issue #39)
 - `compare OLD.json NEW.json`: renders a run-to-run delta (fixed / new / unchanged) across HTML, Markdown, and console sinks (issue #40)
@@ -553,6 +581,10 @@ field and are called out here.
   markdown`, `-o/--output`, an interactive folder picker, and `upgrade`/`update` that print the
   command to run. Offline, advisory, never blocks.
 
+[0.15.2]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.15.2
+[0.15.1]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.15.1
+[0.15.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.15.0
+[0.14.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.14.0
 [0.10.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.10.0
 [0.9.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kabukisensei/coop-sql-review/releases/tag/v0.8.0

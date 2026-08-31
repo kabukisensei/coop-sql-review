@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 INIT = ROOT / "src" / "coop_sql_review" / "__init__.py"
 PYPROJECT = ROOT / "pyproject.toml"
 CHANGELOG = ROOT / "CHANGELOG.md"
+LEGACY_VERSION = ROOT / "VERSION"
 
 # PEP 440-ish: 0.5.0, 1.2.3rc1, 0.5.0.post1, 0.5.0.dev2 ...
 _VERSION_RE = re.compile(r"\d+(\.\d+)+((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?")
@@ -99,6 +100,17 @@ def check_pyproject_wiring() -> None:
         ok("[tool.hatch.version] path -> src/coop_sql_review/__init__.py")
 
 
+def check_single_version_authority() -> None:
+    """Reject the retired VERSION file so a second authority cannot drift back in."""
+    if LEGACY_VERSION.exists():
+        fail(
+            "legacy VERSION file exists — remove it; "
+            "src/coop_sql_review/__init__.py is the only version authority"
+        )
+    else:
+        ok("legacy VERSION file is absent (single version authority)")
+
+
 def check_changelog(version: str) -> None:
     text = CHANGELOG.read_text(encoding="utf-8")
     if f"## [{version}]" in text:
@@ -128,6 +140,7 @@ def main() -> int:
     pre_commit = "--pre-commit" in sys.argv[1:]
     version = read_version()
     check_pyproject_wiring()
+    check_single_version_authority()
     if version is not None and not pre_commit:
         check_changelog(version)
         check_tag(version)
