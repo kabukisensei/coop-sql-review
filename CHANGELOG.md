@@ -7,6 +7,12 @@ field and are called out here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pinned the development/CI Ruff version and capped sqlglot at the latest verified
+  30.12.0 patch so fresh environments cannot silently adopt incompatible lint rules
+  or parser behavior.
+
 ## [0.15.2] - 2026-07-16
 
 ### Fixed

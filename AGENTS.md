@@ -231,21 +231,20 @@ Release order is core-first: publish `coop-review-core`, then this tool (`pyproj
 
 ## sqlglot version pin
 
-`pyproject.toml` pins `sqlglot>=26,<31`. The floor is 26 because the parser relies on the >=26
+`pyproject.toml` pins `sqlglot>=26,<=30.12.0`. The floor is 26 because the parser relies on the >=26
 `NotNullColumnConstraint` `allow_null` semantics — 25.x is inverted, which yields wrong column
-nullability. The cap is one below the next major past the verified one (30.x; check the exact
-patch with `.venv/bin/pip show sqlglot`) to avoid silent breaks: parser output shifts between
-sqlglot majors, and the rules and `parse_degraded` diagnostics are tuned to 30.x behavior (e.g.
+nullability. The ceiling is the latest verified patch: 30.17.0 changed T-SQL recovery and broke
+the diagnostic contract, so do not widen the cap without re-verifying parser output. The rules
+and `parse_degraded` diagnostics are tuned to 30.12.0 behavior (e.g.
 `ALTER COLUMN ... NOT NULL` degrading to an opaque `exp.Command`). The `RAISE`-level `syntax_error`
 detection and the `_is_sqlglot_gap` classifier were verified on **30.12.0** and re-run green on the
 **26.33.0** floor (identical fixture lines/categories), so the pin range stands; if you change the
 classifier, re-run `tests/test_syntax_errors.py` on both ends of the pin before widening it. To upgrade: raise the cap by
-one major, run the full suite (`make test`) and `make lint`, and fix any rule whose AST shapes
-moved before widening further. Upgrades are **on-demand, not scheduled**: raise the cap only when
+one verified patch at a time, run the full suite (`make test`) and `make lint`, and fix any rule
+whose AST shapes moved before widening further. Upgrades are **on-demand, not scheduled**: raise the cap only when
 (a) a rule or parser fix needs something from a newer sqlglot, (b) a security advisory lands
 against the pinned range, or (c) the pin blocks installing alongside another tool. Never bump it
-as routine maintenance — every major requires the full re-verification above, and the pinned
-range keeps working regardless.
+as routine maintenance — every widening requires the full re-verification above.
 
 ## Version: single source + release checks
 

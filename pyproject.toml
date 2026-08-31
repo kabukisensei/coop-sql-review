@@ -29,14 +29,15 @@ dependencies = [
     "PyYAML>=6.0",
     # Floor at 26: the parser relies on the >=26 NotNullColumnConstraint
     # `allow_null` semantics (25.x is inverted -> wrong column nullability).
-    # Cap below the next major past the verified one (30.x) to avoid silent breaks.
-    "sqlglot>=26,<31",
+    # 30.17 changed T-SQL recovery/diagnostic behavior; 30.12.0 is the latest
+    # verified patch. Keep the tested 26.x floor while preventing silent drift.
+    "sqlglot>=26,<=30.12.0",
     "click>=8.1",
     "questionary>=2.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.5"]
+dev = ["pytest>=8.0", "ruff==0.15.20"]
 
 [project.scripts]
 coop-sql-review = "coop_sql_review.cli:main"
