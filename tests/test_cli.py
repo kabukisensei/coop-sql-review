@@ -886,11 +886,70 @@ def test_discover_dedups_overlapping_roots(tmp_path):
     assert found[0].name == "a.sql"
 
 
-def test_discover_takes_explicit_file_as_is(tmp_path):
-    # A file passed explicitly is used even without a .sql extension.
+def test_discover_rejects_explicit_non_sql_file(tmp_path):
+    # Issue #42: explicit files must be .sql; non-.sql files are ignored by discover_sql_files
     f = tmp_path / "script.txt"
     f.write_text("SELECT 1;\n", encoding="utf-8")
-    assert discover_sql_files((str(f),)) == [f]
+    assert discover_sql_files((str(f),)) == []
+
+
+def test_discover_accepts_explicit_case_variations(tmp_path):
+    a = tmp_path / "a.sql"
+    b = tmp_path / "b.SQL"
+    c = tmp_path / "c.Sql"
+    for f in (a, b, c):
+        f.write_text("SELECT 1;\n", encoding="utf-8")
+    found = discover_sql_files((str(a), str(b), str(c)))
+    assert [p.name for p in found] == ["a.sql", "b.SQL", "c.Sql"]
+
+
+def test_check_unsupported_explicit_file_advisory(tmp_path):
+    txt = tmp_path / "query.txt"
+    txt.write_text("SELECT 1;\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", str(txt), "--format", "json"])
+    assert result.exit_code == 0
+    assert f"not a .sql file: {txt}" in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["files_checked"] == 0
+    diags = [d for d in payload["diagnostics"] if d["category"] == "scan_empty"]
+    assert len(diags) == 1
+    assert "not a .sql file" in diags[0]["message"]
+    assert txt.as_posix() in diags[0]["file"]
+
+
+def test_check_unsupported_explicit_file_strict(tmp_path):
+    txt = tmp_path / "query.txt"
+    txt.write_text("SELECT 1;\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", str(txt), "--strict"])
+    assert result.exit_code == 2
+    assert f"not a .sql file: {txt}" in result.stderr
+
+
+def test_check_mixed_valid_and_unsupported_explicit_inputs(tmp_path):
+    valid = tmp_path / "valid.sql"
+    valid.write_text("SELECT 1;\n", encoding="utf-8")
+    unsupported = tmp_path / "notes.txt"
+    unsupported.write_text("some notes\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", str(valid), str(unsupported), "--format", "json"])
+    assert result.exit_code == 0
+    assert f"not a .sql file: {unsupported}" in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["files_checked"] == 1
+    assert not any(d["category"] == "scan_empty" for d in payload["diagnostics"])
+
+
+def test_check_directory_recursion_ignores_non_sql_without_noise(tmp_path):
+    (tmp_path / "a.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.SQL").write_text("SELECT 1;\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("text\n", encoding="utf-8")
+    (tmp_path / "LICENSE").write_text("license\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["check", str(tmp_path), "--format", "json"])
+    assert result.exit_code == 0
+    assert "not a .sql file" not in result.stderr
+    assert "No .sql files found" not in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["files_checked"] == 2
 
 
 def test_discover_order_is_deterministic(tmp_path):

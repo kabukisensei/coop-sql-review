@@ -108,15 +108,19 @@ _DEFAULT_HTML_NAME = "coop-sql-review-report.html"
 def discover_sql_files(paths: tuple[str, ...]) -> list[Path]:
     """Expand the given paths into a sorted list of ``.sql`` files.
 
-    Files are taken as-is; directories are searched recursively, skipping
-    hidden directories. Defaults to the current directory when none given.
+    Explicit files must be ``.sql`` (case-insensitively) — anything else is
+    skipped (``check`` calls the unsupported file out on stderr) rather than
+    checked as a phantom SQL file. Directories are searched recursively,
+    skipping hidden directories. Defaults to the current directory when none
+    given.
     """
     roots = [Path(p) for p in paths] or [Path(".")]
     found: dict[Path, Path] = {}  # resolved path -> original, so a file reached
     # via two overlapping roots (e.g. `.` and `./sub`) is only counted once.
     for root in roots:
         if root.is_file():
-            found.setdefault(root.resolve(), root)
+            if root.suffix.lower() == ".sql":
+                found.setdefault(root.resolve(), root)
         elif root.is_dir():
             # Case-insensitive on the extension so `.SQL`/`.Sql` are not skipped.
             for candidate in root.rglob("*.[sS][qQ][lL]"):
@@ -707,6 +711,10 @@ def check(
     for p in missing:
         click.echo(f"path not found: {p}", err=True)
 
+    unsupported = [p for p in paths if Path(p).is_file() and Path(p).suffix.lower() != ".sql"]
+    for p in unsupported:
+        click.echo(f"not a .sql file: {p}", err=True)
+
     files = discover_sql_files(paths)
     if changed_ref is not None:
         try:
@@ -720,7 +728,7 @@ def check(
                 files = [Path(p) for p in changed_paths]
         except Exception as exc:
             raise click.UsageError(str(exc)) from exc
-    if not files and not missing and changed_ref is None:
+    if not files and not missing and not unsupported and changed_ref is None:
         click.echo("No .sql files found.", err=True)
     # No early return: a zero-file scan still renders the full report in every
     # format/sink (files_checked=0 is the machine contract's own disambiguator),
@@ -745,8 +753,12 @@ def check(
         for root in paths or (".",):
             if changed_ref is not None:
                 problem = "no .sql files changed since " + changed_ref
+            elif root in missing:
+                problem = "path not found"
+            elif root in unsupported:
+                problem = "not a .sql file"
             else:
-                problem = "path not found" if root in missing else "no .sql files found under this path"
+                problem = "no .sql files found under this path"
             result.diagnostics.append(
                 Diagnostic(
                     severity="warning",
