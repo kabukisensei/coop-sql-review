@@ -741,9 +741,12 @@ def check(
     with progress.bar("Parsing", total=len(files)) as tick:
         parsed, read_diagnostics = _parse_files(files, dialect, on_file=tick)
 
-    from coop_sql_review.catalog_builder import build_catalog
+    from coop_sql_review.catalog_builder import ExternalSchemaError, build_catalog
 
-    catalog = build_catalog(parsed, schema_path)
+    try:
+        catalog = build_catalog(parsed, schema_path)
+    except ExternalSchemaError as exc:
+        raise click.UsageError(f"could not load --schema: {exc}") from exc
 
     result = run_rules(parsed, rules, catalog)
     result.diagnostics.extend(read_diagnostics)
